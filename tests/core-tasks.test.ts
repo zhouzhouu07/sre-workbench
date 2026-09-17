@@ -1,0 +1,11 @@
+import {it,expect} from 'vitest';import {mkdtempSync,rmSync} from 'node:fs';import {tmpdir} from 'node:os';import {join} from 'node:path';import {Store} from '../src/main/core/store';import {TaskManager} from '../src/main/core/tasks';import type {SSHManager} from '../src/main/core/ssh';
+it('reconciles persisted remote exit code, redacts logs, and never resubmits an unknown job',async()=>{
+ const dir=mkdtempSync(join(tmpdir(),'sre-task-'));const store=new Store(dir,s=>s,s=>s);await store.init();store.setSecret('known-secret');
+ const commands:string[]=[];const ssh={exec:async(_id:string,command:string)=>{commands.push(command);return {code:0,stderr:'',stdout:'SRE_EXIT=7\nLoadState=loaded\nActiveState=failed\nResult=exit-code\nExecMainStatus=7\n\nSRE_LOG_BEGIN\nknown-secret failed'};}} as unknown as SSHManager;
+ const tasks=new TaskManager(store,ssh,()=>{});store.put('tasks',{id:'task',hostId:'host',title:'Test',status:'unknown',createdAt:'now',updatedAt:'now',logs:'',directory:'/home/a/job',unit:'sre-task',submitted:true,system:true,spec:{hostId:'host',title:'Test',script:'exit 7',sudo:true,timeout:60}});
+ try{const result=await tasks.reconcile('task');expect(result.status).toBe('failed');expect(result.exitCode).toBe(7);expect(result.logs).toBe('[REDACTED] failed');expect(commands).toHaveLength(1);expect(commands[0]).not.toContain('systemd-run');expect(JSON.stringify(store.snapshot())).not.toContain('exit 7');}finally{await tasks.close();store.close();rmSync(dir,{recursive:true,force:true});}
+});
+it('blocks unconfirmed host jobs instead of automatically retrying',async()=>{
+ const dir=mkdtempSync(join(tmpdir(),'sre-task-'));const store=new Store(dir,s=>s,s=>s);await store.init();const host={id:'host',address:'host',port:22,username:'root',authType:'password',credentialId:'c',fingerprint:'fp',name:'test'};const ssh={host:()=>host} as unknown as SSHManager;const tasks=new TaskManager(store,ssh,()=>{});const spec={hostId:'host',title:'Test',script:'echo hi',sudo:true,timeout:60};store.put('tasks',{id:'unknown',hostId:'host',status:'unknown'});
+ try{const preview=tasks.preview(spec);expect(()=>tasks.run(preview.token,spec)).toThrow('未知任务');}finally{await tasks.close();store.close();rmSync(dir,{recursive:true,force:true});}
+});

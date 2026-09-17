@@ -1,0 +1,11 @@
+node_modules/
+dist/
+release/
+.superpowers/
+.worktrees/
+test-results/
+playwright-report/
+*.log
+.env
+.tools/
+vendor/git/
