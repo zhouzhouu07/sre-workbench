@@ -4,6 +4,8 @@ Windows 中文桌面运维软件：通过 SSH 管理 Linux，部署 Node.js / Py
 
 ## 使用
 
+从 [GitHub Releases 下载 Windows 安装包](https://github.com/zhouzhouu07/sre-workbench/releases/tag/v0.1.0)。仓库当前为私有，需要登录有访问权限的 GitHub 账号。下载页同时提供 SHA256 校验文件。
+
 安装 `release/SRE Workbench Setup 0.1.0.exe`，或运行 `release/win-unpacked/SRE Workbench.exe`。普通使用无需安装 Node.js、Python、Git 或 Docker；Git 已随软件携带，远端缺少 Docker 时由确认后的部署任务安装。
 
 1. 在「主机管理」添加 Linux 地址、SSH 用户和密码或私钥，点击连接检测，核实并信任 SSH 指纹。
