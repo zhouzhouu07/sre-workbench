@@ -142,7 +142,7 @@ export default function App() {
               <strong>{items.find((i) => i.key === page)?.label}</strong>
             </Space>
             <Space>
-              <span className="pill">个人版 · v0.1.0</span>
+              <span className="pill">个人版 · v0.1.1</span>
               <Button
                 type="text"
                 aria-label="刷新数据"
