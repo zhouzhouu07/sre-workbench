@@ -19,8 +19,8 @@ RPC shapes (`params` is an object; unsupported methods/fields rejected):
 - terminal.open {hostId,cols?,rows?} => {id}; terminal.write {id,data}; terminal.resize {id,cols,rows}; terminal.close {id}; events {type:'terminal',id,data}
 - file.list/read {hostId,path}; file.write {hostId,path,content}; file.mkdir/remove {hostId,path}; file.rename {hostId,path,destination}; file.upload {hostId,path,localPath}; file.download {hostId,path,localPath}. remove deletes only a file or empty directory, never recursively.
 - dialog.open {mode:file|directory|save} => string|null
-- script.save {name,body} => ScriptVersion
-- task.cancel/reconcile {id}
+- script.save {name,body} => ScriptVersion; script.delete {id} => true (one saved version)
+- task.cancel/reconcile {id}; task.delete {id} => true (terminal local record only; rejects pending cleanup and dependent tasks)
 
 Host editing may omit password/privateKey to preserve existing credentials; changing auth type requires a new credential. Changing connection identity clears trusted fingerprint. host.probe does not authenticate; trust is separate, accepts only the most recently probed fingerprint and refuses replacing existing keys. To adopt a changed host key, delete and recreate the host after independent verification.
 

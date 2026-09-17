@@ -1,8 +1,9 @@
 import { useState } from "react";
 import { Alert, Button, Descriptions, Modal, Space } from "antd";
-import type { ExecutionPreview, ExecutionSpec } from "../../shared/types";
+import type { ExecutionPreview, ExecutionSpec, Task } from "../../shared/types";
 import { call, reportError } from "../api";
 import ScriptEditor from "./ScriptEditor";
+import TaskFeedback from "./TaskFeedback";
 export default function Execution({
   spec,
   label = "预览执行",
@@ -16,6 +17,7 @@ export default function Execution({
 }) {
   const [preview, setPreview] = useState<ExecutionPreview>();
   const [busy, setBusy] = useState(false);
+  const [submitted, setSubmitted] = useState<Task[]>([]);
   const begin = async () => {
     setBusy(true);
     try {
@@ -29,7 +31,11 @@ export default function Execution({
   const run = async () => {
     setBusy(true);
     try {
-      await call("execution.run", { token: preview!.token, spec });
+      const task = await call<Task>("execution.run", {
+        token: preview!.token,
+        spec,
+      });
+      setSubmitted([task]);
       setPreview(undefined);
       onDone?.();
     } catch (e) {
@@ -89,6 +95,7 @@ export default function Execution({
           </>
         )}
       </Modal>
+      <TaskFeedback tasks={submitted} />
     </>
   );
 }

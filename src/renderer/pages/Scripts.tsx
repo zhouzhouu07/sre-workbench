@@ -4,6 +4,7 @@ import {
   Card,
   Input,
   InputNumber,
+  Popconfirm,
   Select,
   Space,
   Switch,
@@ -40,16 +41,33 @@ export default function Scripts({
         <Card title="历史版本">
           <div className="script-list">
             {[...data.scripts].reverse().map((s) => (
-              <Button
-                key={s.id}
-                block
-                onClick={() => {
-                  setName(s.name);
-                  setBody(s.body);
-                }}
-              >
-                {s.name} · v{s.version}
-              </Button>
+              <Space key={s.id} style={{ display: "flex" }}>
+                <Button
+                  onClick={() => {
+                    setName(s.name);
+                    setBody(s.body);
+                  }}
+                >
+                  {s.name} · v{s.version}
+                </Button>
+                <Popconfirm
+                  title={`删除 ${s.name} · v${s.version}？`}
+                  description="仅删除此保存版本，任务历史保留。"
+                  onConfirm={() =>
+                    call("script.delete", { id: s.id })
+                      .then(refresh)
+                      .catch(reportError)
+                  }
+                >
+                  <Button
+                    danger
+                    size="small"
+                    aria-label={`删除 ${s.name} v${s.version}`}
+                  >
+                    删除
+                  </Button>
+                </Popconfirm>
+              </Space>
             ))}
             {!data.scripts.length && (
               <p className="muted">保存后显示版本历史</p>

@@ -16,8 +16,10 @@ interface StoredTask extends Task {
   cancelRequested?: boolean;
   system?: boolean;
   submitted?: boolean;
+  dependencyIds?: string[];
 }
 export interface TaskHooks {
+  dependencyIds?: string[];
   prepare?: (task: Task) => Promise<void>;
   after?: (task: Task) => Promise<void>;
 }
@@ -44,6 +46,7 @@ export class TaskManager {
   private scheduler = new HostScheduler(3);
   private stopped = false;
   private jobs = new Set<Promise<unknown>>();
+  private busy = new Map<string, number>();
   constructor(
     private store: Store,
     private ssh: SSHManager,
@@ -60,12 +63,54 @@ export class TaskManager {
       if (this.get(task.id).status === "unknown")
         this.track(
           this.scheduler.schedule(task.hostId, () => this.monitor(task.id)),
+          task.id,
         );
     }
   }
-  private track(job: Promise<unknown>): void {
+  private track(job: Promise<unknown>, id: string): void {
+    this.busy.set(id, (this.busy.get(id) ?? 0) + 1);
     this.jobs.add(job);
-    void job.catch(() => {}).finally(() => this.jobs.delete(job));
+    void job
+      .catch(() => {})
+      .finally(() => {
+        this.jobs.delete(job);
+        this.releaseBusy(id);
+      });
+  }
+  private releaseBusy(id: string) {
+    const remaining = (this.busy.get(id) ?? 1) - 1;
+    if (remaining) this.busy.set(id, remaining);
+    else this.busy.delete(id);
+  }
+  hasPendingWork(hostIds: string[]): boolean {
+    return this.store
+      .list<Task>("tasks")
+      .some(
+        (t) =>
+          hostIds.includes(t.hostId) &&
+          (["queued", "running", "unknown"].includes(t.status) ||
+            this.busy.has(t.id)),
+      );
+  }
+  remove(id: string): boolean {
+    const task = this.get(id);
+    if (!["succeeded", "failed", "cancelled"].includes(task.status))
+      throw new Error("任务未完成或状态待核实，不能删除");
+    if (this.busy.has(id)) throw new Error("任务正在收尾或核实，请稍后删除");
+    if (
+      this.store
+        .list<StoredTask>("tasks")
+        .some(
+          (t) =>
+            t.dependencyIds?.includes(id) &&
+            (["queued", "running", "unknown"].includes(t.status) ||
+              this.busy.has(t.id)),
+        )
+    )
+      throw new Error("其他未完成任务仍依赖此执行结果，请稍后删除");
+    this.store.remove("tasks", id);
+    this.emit({ type: "changed" });
+    return true;
   }
   private async monitor(id: string): Promise<void> {
     while (!this.stopped) {
@@ -118,6 +163,7 @@ export class TaskManager {
       logs: "",
       spec,
       system: spec.sudo || host.username === "root",
+      dependencyIds: hooks.dependencyIds,
     };
     task.unit = "sre-" + task.id;
     this.update(task);
@@ -169,6 +215,7 @@ export class TaskManager {
             this.update(final);
           }
       }),
+      task.id,
     );
     return this.public(task);
   }
@@ -270,6 +317,14 @@ export class TaskManager {
     }
   }
   async reconcile(id: string): Promise<Task> {
+    this.busy.set(id, (this.busy.get(id) ?? 0) + 1);
+    try {
+      return await this.reconcileTask(id);
+    } finally {
+      this.releaseBusy(id);
+    }
+  }
+  private async reconcileTask(id: string): Promise<Task> {
     const task = this.get(id);
     if (["succeeded", "failed", "cancelled"].includes(task.status))
       return this.public(task);
@@ -343,6 +398,14 @@ export class TaskManager {
     }
   }
   async cancel(id: string): Promise<Task> {
+    this.busy.set(id, (this.busy.get(id) ?? 0) + 1);
+    try {
+      return await this.cancelTask(id);
+    } finally {
+      this.releaseBusy(id);
+    }
+  }
+  private async cancelTask(id: string): Promise<Task> {
     const task = this.get(id);
     if (["succeeded", "failed", "cancelled"].includes(task.status))
       return this.public(task);

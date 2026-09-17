@@ -12,6 +12,7 @@ import { pathToFileURL } from "node:url";
 import { Backend } from "./core/backend";
 import { AIService } from "./features/ai";
 import { FeatureService } from "./features/operations";
+import { errorMessage } from "./core/errors";
 import type { AppEvent } from "../shared/types";
 
 if (process.env.SRE_DATA_DIR) app.setPath("userData", process.env.SRE_DATA_DIR);
@@ -86,9 +87,7 @@ const start = async () => {
     } catch (e) {
       return {
         ok: false,
-        error:
-          core?.store.redact(e instanceof Error ? e.message : String(e)) ??
-          "请求失败",
+        error: core?.store.redact(errorMessage(e)) ?? "请求失败",
       };
     }
   });

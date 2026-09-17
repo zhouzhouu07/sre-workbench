@@ -111,6 +111,25 @@ export default function Tasks({
                     </Button>
                   </Popconfirm>
                 )}
+                <Popconfirm
+                  title="删除此任务记录？"
+                  description="仅删除本地记录和日志，远端变更不会撤销。"
+                  onConfirm={() =>
+                    call("task.delete", { id: t.id })
+                      .then(refresh)
+                      .catch(reportError)
+                  }
+                >
+                  <Button
+                    danger
+                    size="small"
+                    disabled={["queued", "running", "unknown"].includes(
+                      t.status,
+                    )}
+                  >
+                    删除
+                  </Button>
+                </Popconfirm>
               </Space>
             ),
           },

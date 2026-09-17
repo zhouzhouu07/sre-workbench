@@ -15,5 +15,7 @@ FeatureService(core, {gitPath:string,tempDir:string,openExternal:(url:string)=>P
 - monitoring.silence {id,alertname,minutes,comment} => creates silence. Validate minutes and nonempty reason.
 - monitoring.status {id} => {targets:unknown,alerts:unknown,silences:unknown} via remote loopback API.
 
-AIService implements provider.save/delete and ai.preview/request/cancel separately (root-owned).
-All parameters validated before execution. No fabricated success; remote exit codes and API errors must propagate. UI uses rejected promise errors verbatim as notification.
+deployment.delete / monitoring.delete {id} remove local configurations and associated credentials; deployment deletion also removes local release metadata. No remote uninstall is performed. Related host tasks must be finished, verified and fully cleaned up.
+
+AIService implements provider.save/delete/test and ai.preview/request/cancel. Model providers accept optional protocol: auto|openai|anthropic (existing records default to auto). provider.test {id} sends a fixed short probe and returns {protocol,endpoint,elapsedMs}; no user logs are sent.
+All parameters validated before execution. No fabricated success; remote exit codes and API errors propagate. Validation errors are converted into readable field messages before IPC delivery. MonitoringStack.smtpEnabled is optional; old records infer enabled state from smtpHost. Presets fill the login from the sender; custom blank usernames preserve anonymous SMTP behavior.

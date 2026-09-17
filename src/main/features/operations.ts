@@ -59,6 +59,48 @@ export class FeatureService {
     private options: Options,
   ) {}
   async handle(method: string, params: unknown): Promise<any> {
+    if (method === "deployment.delete" || method === "monitoring.delete") {
+      const { id } = idParams.parse(params);
+      const monitoring = method === "monitoring.delete";
+      const saved = monitoring ? this.monitor(id) : this.deployment(id);
+      const hostIds = [
+        saved.hostId,
+        ...("targets" in saved ? saved.targets.map((t) => t.hostId) : []),
+      ];
+      if (this.core.tasks.hasPendingWork(hostIds))
+        throw new Error(
+          "相关主机仍有未完成、待核实或正在收尾的任务，请稍后删除",
+        );
+      const secrets = monitoring
+        ? [
+            (saved as SavedMonitor).smtpCredentialId,
+            (saved as SavedMonitor).grafanaCredentialId,
+            (saved as SavedMonitor).webhookCredentialId,
+          ]
+        : [
+            (saved as SavedDeployment).envCredentialId,
+            (saved as SavedDeployment).gitCredentialId,
+          ];
+      if (monitoring) {
+        for (const [key, tunnel] of this.tunnels)
+          if (key.startsWith(id + ":")) {
+            for (const socket of tunnel.sockets) socket.destroy();
+            tunnel.server.close();
+            tunnel.client.end();
+            this.tunnels.delete(key);
+          }
+      } else {
+        for (const release of this.core.store.list<DeploymentRelease>(
+          "releases",
+        ))
+          if (release.deploymentId === id)
+            this.core.store.remove("releases", release.id);
+      }
+      this.core.store.remove(monitoring ? "monitoring" : "deployments", id);
+      for (const secret of secrets)
+        if (secret) this.core.store.deleteSecret(secret);
+      return true;
+    }
     if (method === "deployment.save") return this.saveDeployment(params);
     if (method === "monitoring.save") return this.saveMonitoring(params);
     if (method === "deployment.detect") return this.detect(params);
@@ -233,7 +275,7 @@ export class FeatureService {
       (p.grafanaPassword && p.grafanaPassword.length < 12)
     )
       throw new Error("首次部署需要至少 12 位 Grafana 管理员密码");
-    if (p.smtpHost && (!p.smtpFrom || !p.smtpTo))
+    if ((p.smtpEnabled ?? !!p.smtpHost) && (!p.smtpFrom || !p.smtpTo))
       throw new Error("邮件通知需要发件地址和收件地址");
     let webhook = p.webhook;
     if (webhook === "[REDACTED]")
@@ -581,6 +623,7 @@ export class FeatureService {
     };
     const p = this.core.tasks.preview(spec);
     const task = this.core.tasks.run(p.token, spec, {
+      dependencyIds: exporters.map((t) => t.id),
       prepare: async (task) => {
         const start = Date.now();
         while (true) {

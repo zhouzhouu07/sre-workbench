@@ -1,4 +1,10 @@
 import { z } from "zod";
+import {
+  validEmail,
+  validRecipients,
+  validSmtpHost,
+  validTargetAddress,
+} from "../../shared/monitoring-form";
 export const identifier = z.string().uuid();
 export const idParams = z.object({ id: identifier }).strict();
 const duration = z.string().regex(/^\d+(?:ms|s|m|h|d)$/);
@@ -74,9 +80,16 @@ export const monitorSchema = z
     name: z.string().min(1).max(100),
     targets: z
       .array(
-        z.object({ hostId: z.string().min(1), address: z.ipv4() }).strict(),
+        z
+          .object({
+            hostId: z.string().min(1, "请选择采集主机"),
+            address: z
+              .string()
+              .refine(validTargetAddress, "请输入主机间可达的 IPv4 地址"),
+          })
+          .strict(),
       )
-      .min(1)
+      .min(1, "请至少添加一台采集主机")
       .max(20),
     retentionDays: z.number().int().min(1).max(365),
     cpuThreshold: z.number().min(1).max(100),
@@ -86,10 +99,14 @@ export const monitorSchema = z
     groupWait: duration,
     groupInterval: duration,
     repeatInterval: duration,
+    smtpEnabled: z.boolean().optional(),
     smtpHost: z
       .string()
       .max(300)
-      .refine((s) => !s || /^[A-Za-z0-9.-]+:\d+$/.test(s)),
+      .refine(
+        (s) => !s || validSmtpHost(s),
+        "请输入 SMTP 主机:端口，端口范围 1–65535",
+      ),
     smtpFrom: z.string().max(300),
     smtpTo: z.string().max(1000),
     smtpUser: z.string().max(300),
@@ -99,4 +116,36 @@ export const monitorSchema = z
     grafanaCredentialId: z.string().optional(),
     webhook: z.string().max(3000),
   })
-  .strict();
+  .strict()
+  .superRefine((value, ctx) => {
+    if (value.smtpEnabled ?? !!value.smtpHost) {
+      if (!value.smtpHost)
+        ctx.addIssue({
+          code: "custom",
+          path: ["smtpHost"],
+          message: "请输入 SMTP 主机:端口",
+        });
+      if (!validEmail(value.smtpFrom))
+        ctx.addIssue({
+          code: "custom",
+          path: ["smtpFrom"],
+          message: "请输入有效的发件邮箱",
+        });
+      if (!validRecipients(value.smtpTo))
+        ctx.addIssue({
+          code: "custom",
+          path: ["smtpTo"],
+          message: "请输入有效的收件邮箱，多个邮箱用英文逗号分隔",
+        });
+    }
+    const hosts = new Set<string>();
+    value.targets.forEach((target, index) => {
+      if (hosts.has(target.hostId))
+        ctx.addIssue({
+          code: "custom",
+          path: ["targets", index, "hostId"],
+          message: "同一主机不能重复添加",
+        });
+      hosts.add(target.hostId);
+    });
+  });

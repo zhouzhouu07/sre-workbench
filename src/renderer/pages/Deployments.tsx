@@ -8,6 +8,7 @@ import {
   Input,
   InputNumber,
   Modal,
+  Popconfirm,
   Select,
   Space,
   Table,
@@ -15,9 +16,10 @@ import {
   Typography,
   message,
 } from "antd";
-import type { Snapshot, DeploymentSpec } from "../../shared/types";
+import type { Snapshot, DeploymentSpec, Task } from "../../shared/types";
 import { call, reportError } from "../api";
 import ScriptEditor from "../components/ScriptEditor";
+import TaskFeedback from "../components/TaskFeedback";
 const defaults = {
   sourceType: "local",
   gitRef: "main",
@@ -52,6 +54,7 @@ export default function Deployments({
     script: string;
   }>();
   const [busy, setBusy] = useState(false);
+  const [submitted, setSubmitted] = useState<Task[]>([]);
   const sourceType = Form.useWatch("sourceType", form);
   const template = Form.useWatch("template", form);
   const edit = (d?: DeploymentSpec) => {
@@ -164,6 +167,17 @@ export default function Deployments({
                 >
                   同步版本
                 </Button>
+                <Popconfirm
+                  title="删除此部署方案？"
+                  description="删除本地方案及版本记录。远端应用继续运行，不会卸载。"
+                  onConfirm={() =>
+                    call("deployment.delete", { id: d.id })
+                      .then(refresh)
+                      .catch(reportError)
+                  }
+                >
+                  <Button danger>删除</Button>
+                </Popconfirm>
               </Space>
             ),
           },
@@ -401,7 +415,7 @@ export default function Deployments({
         onOk={async () => {
           setBusy(true);
           try {
-            await call(
+            const task = await call<Task>(
               preview?.releaseId ? "deployment.rollback.run" : "deployment.run",
               {
                 id: preview!.id,
@@ -409,6 +423,7 @@ export default function Deployments({
                 ...(preview?.releaseId ? { releaseId: preview.releaseId } : {}),
               },
             );
+            setSubmitted([task]);
             setPreview(undefined);
             refresh();
             void message.success("部署任务已创建，请在任务中心查看");
@@ -422,6 +437,7 @@ export default function Deployments({
         <Alert type="warning" title={preview?.summary} />
         <ScriptEditor value={preview?.script ?? ""} readOnly height="450px" />
       </Modal>
+      <TaskFeedback tasks={submitted} />
     </>
   );
 }

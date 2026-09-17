@@ -97,6 +97,7 @@ export interface MonitoringStack {
   groupInterval: string;
   repeatInterval: string;
   smtpHost: string;
+  smtpEnabled?: boolean;
   smtpFrom: string;
   smtpTo: string;
   smtpUser: string;
@@ -108,6 +109,7 @@ export interface AIProvider {
   id: string;
   name: string;
   kind: "model" | "agent";
+  protocol?: "auto" | "openai" | "anthropic";
   baseUrl: string;
   model: string;
   credentialId?: string;

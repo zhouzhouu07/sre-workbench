@@ -13,6 +13,7 @@ import { SSHManager } from "./ssh";
 import { TaskManager } from "./tasks";
 import { shellQuote as q } from "./safety";
 import { metricsCommand } from "./metrics";
+import { errorMessage } from "./errors";
 
 const id = z.string().min(1).max(100),
   text = z.string().min(1).max(200);
@@ -163,11 +164,7 @@ export class Backend {
     try {
       return await this.dispatch(method, params);
     } catch (error) {
-      throw new Error(
-        this.store.redact(
-          error instanceof Error ? error.message : String(error),
-        ),
-      );
+      throw new Error(this.store.redact(errorMessage(error)));
     }
   }
   private async dispatch(method: string, params: unknown): Promise<any> {
@@ -192,7 +189,16 @@ export class Backend {
           throw new Error("主机仍有未完成任务");
         if (
           ["deployments", "monitoring"].some((c) =>
-            this.store.list<any>(c).some((x) => x.hostId === p.id),
+            this.store
+              .list<any>(c)
+              .some(
+                (x) =>
+                  x.hostId === p.id ||
+                  (c === "monitoring" &&
+                    x.targets?.some(
+                      (t: { hostId: string }) => t.hostId === p.id,
+                    )),
+              ),
           )
         )
           throw new Error("请先移除该主机的部署及监控配置");
@@ -310,6 +316,8 @@ export class Backend {
       }
       case "task.cancel":
         return this.tasks.cancel(object({ id }).parse(params).id);
+      case "task.delete":
+        return this.tasks.remove(object({ id }).parse(params).id);
       case "task.reconcile":
         return this.tasks.reconcile(object({ id }).parse(params).id);
       case "terminal.open": {
@@ -387,6 +395,13 @@ export class Backend {
         const result = await this.options.chooseFile(p.mode);
         if (result) this.selectedFiles.set(resolve(result), p.mode);
         return result;
+      }
+      case "script.delete": {
+        const p = object({ id }).parse(params);
+        if (!this.store.get("scripts", p.id)) throw new Error("脚本版本不存在");
+        this.store.remove("scripts", p.id);
+        this.changed();
+        return true;
       }
       case "script.save": {
         const p = object({

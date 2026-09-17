@@ -67,7 +67,7 @@ export function deploymentFiles(
           ? ["80:80", "443:443", "443:443/udp"]
           : [`${s.publicPort}:80`],
         volumes: [
-          base + "/routing:/etc/caddy:ro",
+          base + "/routing:/etc/caddy:ro,z",
           "caddy-data:/data",
           "caddy-config:/config",
         ],
@@ -140,7 +140,7 @@ for attempt in $(seq 1 60); do
   sleep 2
 done
 test "$healthy" = 1 || { echo 'Candidate health check failed'; exit 1; }
-docker run --rm -v "$release:/etc/caddy:ro" caddy:2.9.1-alpine caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile
+docker run --rm -v "$release:/etc/caddy:ro,z" caddy:2.9.1-alpine caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile
 if test -f "$base/routing/Caddyfile"; then cp "$base/routing/Caddyfile" "$base/routing/previous"; fi
 if test -f "$base/proxy.yml"; then cp "$base/proxy.yml" "$base/proxy.previous.yml"; fi
 cp "$release/Caddyfile" "$base/routing/candidate"

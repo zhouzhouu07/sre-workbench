@@ -7,5 +7,9 @@ export async function call<T = any>(
   return window.sre.call<T>(method, params);
 }
 export const reportError = (error: unknown) => {
-  void message.error(error instanceof Error ? error.message : String(error), 6);
+  void message.error({
+    key: "request-error",
+    content: error instanceof Error ? error.message : String(error),
+    duration: 6,
+  });
 };

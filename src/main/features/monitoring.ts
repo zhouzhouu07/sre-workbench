@@ -71,7 +71,7 @@ export function monitoringFiles(
     ],
   });
   const receiver: Record<string, unknown> = { name: "notifications" };
-  if (s.smtpHost)
+  if (s.smtpEnabled ?? !!s.smtpHost)
     receiver.email_configs = [
       {
         to: s.smtpTo,
@@ -81,7 +81,9 @@ export function monitoringFiles(
         ...(smtpPassword
           ? { auth_password_file: "/etc/alertmanager/secrets/smtp_password" }
           : {}),
-        require_tls: true,
+        // Alertmanager 0.28.1 dials TLS directly on 465. Requiring STARTTLS
+        // there attempts a second upgrade which implicit-TLS servers reject.
+        require_tls: !s.smtpHost.endsWith(":465"),
         send_resolved: true,
       },
     ];
@@ -163,7 +165,7 @@ export function monitoringFiles(
     })),
   });
   const config = (name: string, target: string) =>
-    `${base}/${name}:${target}:ro`;
+    `${base}/${name}:${target}:ro,z`;
   files["compose.yml"] = stringify({
     name: "sre-mon-" + s.id,
     services: {
@@ -248,8 +250,8 @@ chmod 600 "$base/alertmanager.yml" "$base/secrets/smtp_password" "$base/secrets/
 chown 472:472 "$base/secrets/grafana_password"
 chmod 711 "$base/secrets"
 ${s.targets.map((t) => `curl -fsS --max-time 15 ${q("http://" + t.address + ":9100/metrics")} >/dev/null`).join("\n")}
-docker run --rm -v "$base:/etc/prometheus:ro" --entrypoint /bin/promtool prom/prometheus:v3.2.1 check config /etc/prometheus/prometheus.yml
-docker run --rm -v "$base:/etc/alertmanager:ro" --entrypoint /bin/amtool prom/alertmanager:v0.28.1 check-config /etc/alertmanager/alertmanager.yml
+docker run --rm -v "$base:/etc/prometheus:ro,z" --entrypoint /bin/promtool prom/prometheus:v3.2.1 check config /etc/prometheus/prometheus.yml
+docker run --rm -v "$base:/etc/alertmanager:ro,z" --entrypoint /bin/amtool prom/alertmanager:v0.28.1 check-config /etc/alertmanager/alertmanager.yml
 docker compose -f "$base/compose.yml" config --quiet
 docker compose -f "$base/compose.yml" up -d --force-recreate
 for port in 9090 9093 3000; do

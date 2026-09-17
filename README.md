@@ -4,7 +4,7 @@ Windows 中文桌面运维软件：通过 SSH 管理 Linux，部署 Node.js / Py
 
 ## 使用
 
-从 [GitHub Releases 下载 Windows 安装包](https://github.com/zhouzhouu07/sre-workbench/releases/tag/v0.1.0)。仓库当前为私有，需要登录有访问权限的 GitHub 账号。下载页同时提供 SHA256 校验文件。
+项目源码已公开：[GitHub 仓库](https://github.com/zhouzhouu07/sre-workbench)。可从 [GitHub Releases 查看已发布的 Windows 安装包](https://github.com/zhouzhouu07/sre-workbench/releases)，下载时请核对对应版本说明及 SHA256；源码更新不代表旧发布包已包含最新修复。
 
 安装 `release/SRE Workbench Setup 0.1.0.exe`，或运行 `release/win-unpacked/SRE Workbench.exe`。普通使用无需安装 Node.js、Python、Git 或 Docker；Git 已随软件携带，远端缺少 Docker 时由确认后的部署任务安装。
 
@@ -15,6 +15,8 @@ Windows 中文桌面运维软件：通过 SSH 管理 Linux，部署 Node.js / Py
 5. 在「设置」配置模型 API 或外部 Agent。AI 助手只发送你选定、预览后的上下文；返回脚本需要另一次明确确认才能执行。
 
 详细操作、远端要求及边界见 [使用说明](docs/user-guide.md)，外部服务协议见 [Agent API](docs/agent-api.md)。
+
+项目架构、功能与验证进展见 [SRE 运维工作台博客](docs/blog/2026-09-17-sre-workbench-architecture.md)。
 
 ## 源码开发
 
@@ -42,6 +44,6 @@ pnpm package
 
 ## 当前交付边界
 
-当前为可安装的首版实现。按项目要求，本轮以完成功能和打包为先，未运行自动化回归套件；真实 Linux 上的部署、证书签发、监控和通知需要在实际使用阶段联调。安装包未配置商业代码签名证书。
+当前修复包含自动化回归验证，覆盖本地删除、执行反馈、监控表单、模型协议和部署脚本分支；真实 Linux 上的部署、证书签发、监控和通知需要在目标环境联调。安装包未配置商业代码签名证书。
 
-支持 Ubuntu 22.04/24.04、Debian 12 x86_64，主机需能访问软件源和镜像仓库。暂不含 Zabbix、Kubernetes、多人权限、无人确认的 AI 执行、数据库迁移。应用回退不回退持久化数据。
+支持 Rocky Linux 9.4、Ubuntu 22.04/24.04、Debian 12 x86_64，主机需能访问软件源和镜像仓库。模型接口支持 OpenAI 与 Anthropic 兼容协议（包括 DeepSeek `/anthropic`）。列表删除仅移除本地配置或记录，不卸载远端服务。暂不含 Zabbix、Kubernetes、多人权限、无人确认的 AI 执行、数据库迁移。应用回退不回退持久化数据。

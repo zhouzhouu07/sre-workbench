@@ -1,22 +1,33 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import {
   Alert,
   Button,
   Card,
+  Collapse,
   Form,
   Input,
   InputNumber,
   Modal,
   Select,
   Space,
+  Switch,
   Table,
   Tag,
   Typography,
   message,
 } from "antd";
-import type { MonitoringStack, Snapshot } from "../../shared/types";
+import type { MonitoringStack, Snapshot, Task } from "../../shared/types";
 import { call, reportError } from "../api";
 import ScriptEditor from "../components/ScriptEditor";
+import TaskFeedback from "../components/TaskFeedback";
+import {
+  durationPattern,
+  smtpProviders,
+  validEmail,
+  validRecipients,
+  validSmtpHost,
+  validTargetAddress,
+} from "../../shared/monitoring-form";
 export default function Monitoring({
   data,
   refresh,
@@ -29,39 +40,91 @@ export default function Monitoring({
   const [form] = Form.useForm();
   const [preview, setPreview] = useState<any>();
   const [busy, setBusy] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const saveLock = useRef(false);
+  const [saveError, setSaveError] = useState<string>();
+  const [provider, setProvider] = useState("qq");
+  const [submitted, setSubmitted] = useState<Task[]>([]);
+  const [smtpAdvanced, setSmtpAdvanced] = useState<string[]>([]);
+  const [alertAdvanced, setAlertAdvanced] = useState<string[]>([]);
+  const emailEnabled = Form.useWatch("smtpEnabled", form);
   const [status, setStatus] = useState<unknown>();
   const edit = (m?: MonitoringStack) => {
     setEditing(m);
+    setSmtpAdvanced([]);
+    setAlertAdvanced([]);
+    setSaveError(undefined);
+    setProvider(m ? "custom" : "qq");
     form.resetFields();
     form.setFieldsValue(
-      m ?? {
-        name: "基础设施监控",
-        retentionDays: 15,
-        cpuThreshold: 85,
-        memoryThreshold: 90,
-        diskThreshold: 90,
-        duration: "5m",
-        groupWait: "30s",
-        groupInterval: "5m",
-        repeatInterval: "4h",
-        smtpHost: "",
-        smtpFrom: "",
-        smtpTo: "",
-        smtpUser: "",
-        webhook: "",
-        targets: [],
-      },
+      m
+        ? { ...m, smtpEnabled: m.smtpEnabled ?? !!m.smtpHost }
+        : {
+            name: "基础设施监控",
+            retentionDays: 15,
+            cpuThreshold: 85,
+            memoryThreshold: 90,
+            diskThreshold: 90,
+            duration: "5m",
+            groupWait: "30s",
+            groupInterval: "5m",
+            repeatInterval: "4h",
+            smtpEnabled: false,
+            smtpHost: "smtp.qq.com:587",
+            smtpFrom: "",
+            smtpTo: "",
+            smtpUser: "",
+            webhook: "",
+            targets: [],
+          },
     );
     setOpen(true);
   };
   const save = async () => {
+    if (saveLock.current) return;
+    saveLock.current = true;
+    setSaving(true);
+    setSaveError(undefined);
     try {
       const v = await form.validateFields();
-      await call("monitoring.save", { ...v, id: editing?.id });
+      const values = { ...form.getFieldsValue(true), ...v };
+      delete values.webhookCredentialId;
+      await call("monitoring.save", {
+        ...values,
+        smtpUser:
+          provider === "custom" ? (values.smtpUser ?? "") : values.smtpFrom,
+        id: editing?.id,
+      });
       setOpen(false);
       refresh();
     } catch (e) {
-      if (e instanceof Error) reportError(e);
+      if (e && typeof e === "object" && "errorFields" in e) {
+        const fields = (e as { errorFields: { name: (string | number)[] }[] })
+          .errorFields;
+        if (
+          fields.some((f) =>
+            ["smtpHost", "smtpUser"].includes(String(f.name[0])),
+          )
+        )
+          setSmtpAdvanced(["smtp"]);
+        if (
+          fields.some((f) =>
+            [
+              "groupWait",
+              "groupInterval",
+              "repeatInterval",
+              "webhook",
+            ].includes(String(f.name[0])),
+          )
+        )
+          setAlertAdvanced(["alerts"]);
+        if (fields[0]) form.scrollToField(fields[0].name);
+      } else {
+        setSaveError(e instanceof Error ? e.message : "保存失败，请重试");
+      }
+    } finally {
+      saveLock.current = false;
+      setSaving(false);
     }
   };
   return (
@@ -123,6 +186,30 @@ export default function Monitoring({
                   部署 / 更新
                 </Button>
                 <Button onClick={() => edit(m)}>配置</Button>
+                <Button
+                  danger
+                  onClick={() =>
+                    Modal.confirm({
+                      title: `删除监控方案“${m.name}”？`,
+                      content:
+                        "仅移除本地配置，不会停止或卸载远程监控服务；远程采集和通知仍会继续运行。",
+                      okText: "删除本地配置",
+                      cancelText: "取消",
+                      okButtonProps: { danger: true },
+                      onOk: async () => {
+                        try {
+                          await call("monitoring.delete", { id: m.id });
+                          refresh();
+                        } catch (e) {
+                          reportError(e);
+                          throw e;
+                        }
+                      },
+                    })
+                  }
+                >
+                  删除
+                </Button>
                 <Button
                   onClick={() =>
                     call("monitoring.open", {
@@ -217,23 +304,39 @@ export default function Monitoring({
         width={850}
         onCancel={() => setOpen(false)}
         onOk={save}
+        confirmLoading={saving}
+        cancelButtonProps={{ disabled: saving }}
+        closable={!saving}
+        maskClosable={!saving}
         okText="保存方案"
       >
         <Form form={form} layout="vertical">
+          {saveError && (
+            <Alert
+              type="error"
+              showIcon
+              title={saveError}
+              style={{ marginBottom: 16 }}
+            />
+          )}
           <div className="two-col">
             <Form.Item
               name="name"
               label="方案名称"
-              rules={[{ required: true }]}
+              rules={[
+                { required: true, whitespace: true, message: "请输入方案名称" },
+                { max: 100, message: "方案名称最多 100 字" },
+              ]}
             >
               <Input />
             </Form.Item>
             <Form.Item
               name="hostId"
               label="监控服务器"
-              rules={[{ required: true }]}
+              rules={[{ required: true, message: "请选择监控服务器" }]}
             >
               <Select
+                disabled={!!editing}
                 options={data.hosts.map((h) => ({
                   value: h.id,
                   label: h.name,
@@ -241,15 +344,43 @@ export default function Monitoring({
               />
             </Form.Item>
           </div>
-          <Form.List name="targets">
-            {(fields, { add, remove }) => (
+          <Form.List
+            name="targets"
+            rules={[
+              {
+                validator: async (_, targets) => {
+                  if (!targets?.length)
+                    throw new Error("请至少添加一台采集主机");
+                  if (targets.length > 20)
+                    throw new Error("最多添加 20 台采集主机");
+                },
+              },
+            ]}
+          >
+            {(fields, { add, remove }, { errors }) => (
               <>
                 <Typography.Title level={5}>采集目标</Typography.Title>
                 {fields.map((f) => (
                   <Space key={f.key} align="baseline">
                     <Form.Item
                       name={[f.name, "hostId"]}
-                      rules={[{ required: true }]}
+                      rules={[
+                        { required: true, message: "请选择采集主机" },
+                        {
+                          validator: async (_, value) => {
+                            if (
+                              value &&
+                              form
+                                .getFieldValue("targets")
+                                .filter(
+                                  (t: { hostId?: string }) =>
+                                    t?.hostId === value,
+                                ).length > 1
+                            )
+                              throw new Error("同一主机不能重复添加");
+                          },
+                        },
+                      ]}
                     >
                       <Select
                         placeholder="SSH 主机"
@@ -262,7 +393,15 @@ export default function Monitoring({
                     </Form.Item>
                     <Form.Item
                       name={[f.name, "address"]}
-                      rules={[{ required: true }]}
+                      rules={[
+                        { required: true, message: "请输入采集地址" },
+                        {
+                          validator: async (_, value) => {
+                            if (value && !validTargetAddress(value))
+                              throw new Error("请输入主机间可达的 IPv4 地址");
+                          },
+                        },
+                      ]}
                     >
                       <Input
                         placeholder="绑定及采集的内网 IP"
@@ -274,66 +413,314 @@ export default function Monitoring({
                     </Button>
                   </Space>
                 ))}
-                <Button onClick={() => add()}>添加采集主机</Button>
+                <Button disabled={fields.length >= 20} onClick={() => add()}>
+                  添加采集主机
+                </Button>
+                <Form.ErrorList errors={errors} />
               </>
             )}
           </Form.List>
           <div className="two-col" style={{ marginTop: 20 }}>
-            <Form.Item name="retentionDays" label="指标保留天数">
+            <Form.Item
+              name="retentionDays"
+              label="指标保留天数"
+              rules={[
+                {
+                  type: "integer",
+                  required: true,
+                  min: 1,
+                  max: 365,
+                  message: "请输入 1–365 的整数",
+                },
+              ]}
+            >
               <InputNumber min={1} max={365} />
             </Form.Item>
-            <Form.Item name="grafanaPassword" label="Grafana 管理员密码">
+            <Form.Item
+              name="grafanaPassword"
+              label="Grafana 管理员密码"
+              rules={[
+                { required: !editing, message: "请输入 Grafana 管理员密码" },
+                { min: 12, message: "密码至少 12 位" },
+              ]}
+            >
               <Input.Password
                 placeholder={editing ? "留空保留原密码" : "至少 12 位"}
               />
             </Form.Item>
           </div>
           <div className="three-col">
-            <Form.Item name="cpuThreshold" label="CPU 告警阈值 %">
+            <Form.Item
+              name="cpuThreshold"
+              label="CPU 告警阈值 %"
+              rules={[
+                {
+                  type: "number",
+                  required: true,
+                  min: 1,
+                  max: 100,
+                  message: "请输入 1–100 的阈值",
+                },
+              ]}
+            >
               <InputNumber min={1} max={100} />
             </Form.Item>
-            <Form.Item name="memoryThreshold" label="内存告警阈值 %">
+            <Form.Item
+              name="memoryThreshold"
+              label="内存告警阈值 %"
+              rules={[
+                {
+                  type: "number",
+                  required: true,
+                  min: 1,
+                  max: 100,
+                  message: "请输入 1–100 的阈值",
+                },
+              ]}
+            >
               <InputNumber min={1} max={100} />
             </Form.Item>
-            <Form.Item name="diskThreshold" label="磁盘告警阈值 %">
+            <Form.Item
+              name="diskThreshold"
+              label="磁盘告警阈值 %"
+              rules={[
+                {
+                  type: "number",
+                  required: true,
+                  min: 1,
+                  max: 100,
+                  message: "请输入 1–100 的阈值",
+                },
+              ]}
+            >
               <InputNumber min={1} max={100} />
             </Form.Item>
           </div>
           <div className="two-col">
-            <Form.Item name="duration" label="持续时间">
-              <Input />
-            </Form.Item>
-            <Form.Item name="groupWait" label="首次分组等待">
-              <Input />
-            </Form.Item>
-            <Form.Item name="groupInterval" label="分组间隔">
-              <Input />
-            </Form.Item>
-            <Form.Item name="repeatInterval" label="重复通知间隔">
+            <Form.Item
+              name="duration"
+              label="持续时间"
+              rules={[
+                {
+                  required: true,
+                  pattern: durationPattern,
+                  message: "请输入持续时间，例如 5m、30s、1h",
+                },
+              ]}
+            >
               <Input />
             </Form.Item>
           </div>
           <Typography.Title level={5}>邮件通知</Typography.Title>
-          <div className="two-col">
-            <Form.Item name="smtpHost" label="SMTP 主机:端口">
-              <Input placeholder="smtp.example.com:587" />
-            </Form.Item>
-            <Form.Item name="smtpUser" label="SMTP 用户">
-              <Input />
-            </Form.Item>
-            <Form.Item name="smtpFrom" label="发件地址">
-              <Input />
-            </Form.Item>
-            <Form.Item name="smtpTo" label="收件地址">
-              <Input />
-            </Form.Item>
-            <Form.Item name="smtpPassword" label="SMTP 密码">
-              <Input.Password placeholder="留空保留原值" />
-            </Form.Item>
-          </div>
-          <Form.Item name="webhook" label="Alertmanager 标准 Webhook URL">
-            <Input placeholder="https://hooks.example.com/alerts" />
+          <Form.Item
+            name="smtpEnabled"
+            label="启用邮件通知"
+            valuePropName="checked"
+          >
+            <Switch />
           </Form.Item>
+          {emailEnabled && (
+            <>
+              <Form.Item label="邮箱服务商">
+                <Select
+                  value={provider}
+                  options={smtpProviders}
+                  onChange={(value) => {
+                    setProvider(value);
+                    const selected = smtpProviders.find(
+                      (p) => p.value === value,
+                    );
+                    if (selected?.host)
+                      form.setFieldValue("smtpHost", selected.host);
+                  }}
+                />
+              </Form.Item>
+              <div className="two-col">
+                <Form.Item
+                  name="smtpFrom"
+                  label="发件邮箱"
+                  rules={[
+                    { required: true, message: "请输入发件邮箱" },
+                    {
+                      validator: async (_, value) => {
+                        if (value && !validEmail(value))
+                          throw new Error("请输入有效的发件邮箱");
+                      },
+                    },
+                  ]}
+                >
+                  <Input placeholder="sender@qq.com" />
+                </Form.Item>
+                <Form.Item
+                  name="smtpTo"
+                  label="收件邮箱"
+                  rules={[
+                    { required: true, message: "请输入收件邮箱" },
+                    {
+                      validator: async (_, value) => {
+                        if (value && !validRecipients(value))
+                          throw new Error(
+                            "请输入有效邮箱，多个邮箱用英文逗号分隔",
+                          );
+                      },
+                    },
+                  ]}
+                >
+                  <Input placeholder="ops@example.com，多个邮箱用英文逗号分隔" />
+                </Form.Item>
+                <Form.Item
+                  name="smtpPassword"
+                  label="邮箱授权码 / SMTP 密码"
+                  extra="在邮箱设置中开启 SMTP 并获取授权码。已有授权码留空保留。"
+                  rules={[
+                    {
+                      required:
+                        provider !== "custom" && !editing?.smtpCredentialId,
+                      message: "请输入邮箱授权码或 SMTP 密码",
+                    },
+                  ]}
+                >
+                  <Input.Password
+                    placeholder={
+                      editing?.smtpCredentialId
+                        ? "留空保留原授权码"
+                        : "请输入邮箱授权码"
+                    }
+                  />
+                </Form.Item>
+              </div>
+              {provider === "custom" && (
+                <Collapse
+                  activeKey={smtpAdvanced}
+                  onChange={(keys) =>
+                    setSmtpAdvanced(typeof keys === "string" ? [keys] : keys)
+                  }
+                  items={[
+                    {
+                      key: "smtp",
+                      label: "高级 SMTP 设置",
+                      forceRender: true,
+                      children: (
+                        <div className="two-col">
+                          <Form.Item
+                            name="smtpHost"
+                            label="SMTP 主机:端口"
+                            rules={[
+                              {
+                                required: true,
+                                message: "请输入 SMTP 主机:端口",
+                              },
+                              {
+                                validator: async (_, value) => {
+                                  if (value && !validSmtpHost(value))
+                                    throw new Error(
+                                      "请输入 SMTP 主机:端口，端口范围 1–65535",
+                                    );
+                                },
+                              },
+                            ]}
+                          >
+                            <Input placeholder="smtp.example.com:587" />
+                          </Form.Item>
+                          <Form.Item
+                            name="smtpUser"
+                            label="SMTP 用户"
+                            extra="自定义服务留空表示不使用 SMTP 认证"
+                          >
+                            <Input placeholder="认证用户名，免认证中继可留空" />
+                          </Form.Item>
+                        </div>
+                      ),
+                    },
+                  ]}
+                />
+              )}
+            </>
+          )}
+          <Collapse
+            style={{ marginTop: 16 }}
+            activeKey={alertAdvanced}
+            onChange={(keys) =>
+              setAlertAdvanced(typeof keys === "string" ? [keys] : keys)
+            }
+            items={[
+              {
+                key: "alerts",
+                label: "高级告警设置：分组与 Webhook",
+                forceRender: true,
+                children: (
+                  <>
+                    <div className="two-col">
+                      <Form.Item
+                        name="groupWait"
+                        label="首次分组等待"
+                        rules={[
+                          {
+                            required: true,
+                            pattern: durationPattern,
+                            message: "请输入时间，例如 30s、5m、4h",
+                          },
+                        ]}
+                      >
+                        <Input />
+                      </Form.Item>
+                      <Form.Item
+                        name="groupInterval"
+                        label="分组间隔"
+                        rules={[
+                          {
+                            required: true,
+                            pattern: durationPattern,
+                            message: "请输入时间，例如 30s、5m、4h",
+                          },
+                        ]}
+                      >
+                        <Input />
+                      </Form.Item>
+                      <Form.Item
+                        name="repeatInterval"
+                        label="重复通知间隔"
+                        rules={[
+                          {
+                            required: true,
+                            pattern: durationPattern,
+                            message: "请输入时间，例如 30s、5m、4h",
+                          },
+                        ]}
+                      >
+                        <Input />
+                      </Form.Item>
+                    </div>
+                    <Form.Item
+                      name="webhook"
+                      label="Alertmanager 标准 Webhook URL"
+                      rules={[
+                        {
+                          validator: async (_, value) => {
+                            if (!value || value === "[REDACTED]") return;
+                            try {
+                              const url = new URL(value);
+                              if (
+                                url.protocol === "https:" &&
+                                !url.username &&
+                                !url.password
+                              )
+                                return;
+                            } catch {
+                              /* Show a field error below. */
+                            }
+                            throw new Error("请输入不含用户名密码的 HTTPS URL");
+                          },
+                        },
+                      ]}
+                    >
+                      <Input placeholder="https://hooks.example.com/alerts" />
+                    </Form.Item>
+                  </>
+                ),
+              },
+            ]}
+          />
         </Form>
       </Modal>
       <Modal
@@ -346,10 +733,11 @@ export default function Monitoring({
         onOk={async () => {
           setBusy(true);
           try {
-            await call("monitoring.run", {
+            const tasks = await call<Task[]>("monitoring.run", {
               id: preview.id,
               token: preview.token,
             });
+            setSubmitted(tasks);
             setPreview(undefined);
             refresh();
             void message.success("已提交监控部署任务");
@@ -372,6 +760,7 @@ export default function Monitoring({
       >
         <pre className="output">{JSON.stringify(status, null, 2)}</pre>
       </Modal>
+      <TaskFeedback tasks={submitted} />
     </>
   );
 }
