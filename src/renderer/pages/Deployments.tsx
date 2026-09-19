@@ -16,7 +16,12 @@ import {
   Typography,
   message,
 } from "antd";
-import type { Snapshot, DeploymentSpec, Task } from "../../shared/types";
+import type {
+  Snapshot,
+  DeploymentSpec,
+  DeploymentPreflightReport,
+  Task,
+} from "../../shared/types";
 import { call, reportError } from "../api";
 import ScriptEditor from "../components/ScriptEditor";
 import TaskFeedback from "../components/TaskFeedback";
@@ -36,6 +41,27 @@ const defaults = {
   envText: "{}",
   volumesText: "[]",
 };
+function checkLabel(id: string) {
+  const labels: Record<string, string> = {
+    privilege: "执行权限",
+    platform: "系统与架构",
+    systemd: "任务服务",
+    tools: "基础工具",
+    curl: "HTTP 检查工具",
+    memory: "可用内存",
+    "runtime-conflicts": "容器运行时冲突",
+    docker: "Docker 服务",
+    compose: "Compose 插件",
+    dns: "域名解析",
+    selinux: "SELinux 策略",
+    firewall: "防火墙策略",
+    connection: "连接与检查结果",
+  };
+  if (id.startsWith("disk-")) return "磁盘空间 " + id.slice(5);
+  if (id.startsWith("port-")) return "端口 " + id.slice(5);
+  if (id.startsWith("volume-")) return "挂载目录 " + (Number(id.slice(7)) + 1);
+  return labels[id] ?? id;
+}
 export default function Deployments({
   data,
   refresh,
@@ -52,6 +78,7 @@ export default function Deployments({
     token: string;
     summary: string;
     script: string;
+    preflight: DeploymentPreflightReport;
   }>();
   const [busy, setBusy] = useState(false);
   const [submitted, setSubmitted] = useState<Task[]>([]);
@@ -74,7 +101,12 @@ export default function Deployments({
   const prepare = async (id: string, releaseId?: string) => {
     setBusy(true);
     try {
+      const preflight = await call<DeploymentPreflightReport>(
+        "deployment.preflight",
+        { id, ...(releaseId ? { releaseId } : {}) },
+      );
       setPreview({
+        preflight,
         id,
         releaseId,
         ...(await call<{ token: string; summary: string; script: string }>(
@@ -412,6 +444,7 @@ export default function Deployments({
         onCancel={() => setPreview(undefined)}
         confirmLoading={busy}
         okText="确认执行"
+        okButtonProps={{ disabled: !preview?.preflight.ready }}
         onOk={async () => {
           setBusy(true);
           try {
@@ -435,6 +468,54 @@ export default function Deployments({
         }}
       >
         <Alert type="warning" title={preview?.summary} />
+        <Alert
+          style={{ marginTop: 12 }}
+          type={preview?.preflight.ready ? "success" : "error"}
+          title={
+            preview?.preflight.ready
+              ? "环境预检通过，可以确认执行"
+              : "环境预检未通过，请处理失败项后重新检查"
+          }
+          description="检查不会安装软件或修改主机。执行前会再次检查；预检通过不保证构建依赖、镜像仓库和公网访问可达。"
+        />
+        <Button
+          style={{ marginTop: 12 }}
+          loading={busy}
+          onClick={() => preview && prepare(preview.id, preview.releaseId)}
+        >
+          重新检查环境
+        </Button>
+        <Table
+          size="small"
+          rowKey="id"
+          pagination={false}
+          dataSource={preview?.preflight.checks ?? []}
+          columns={[
+            { title: "检查项", dataIndex: "id", render: checkLabel },
+            {
+              title: "结果",
+              dataIndex: "status",
+              render: (status: string) => (
+                <Tag
+                  color={
+                    status === "pass"
+                      ? "success"
+                      : status === "warn"
+                        ? "warning"
+                        : "error"
+                  }
+                >
+                  {status === "pass"
+                    ? "通过"
+                    : status === "warn"
+                      ? "提示"
+                      : "失败"}
+                </Tag>
+              ),
+            },
+            { title: "检查详情", dataIndex: "detail" },
+          ]}
+        />
         <ScriptEditor value={preview?.script ?? ""} readOnly height="450px" />
       </Modal>
       <TaskFeedback tasks={submitted} />

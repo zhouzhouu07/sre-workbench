@@ -7,6 +7,7 @@ import type { Client } from "ssh2";
 import type { Backend } from "../core/backend";
 import type {
   DeploymentSpec,
+  DeploymentPreflightReport,
   DeploymentRelease,
   MonitoringStack,
   Task,
@@ -26,7 +27,12 @@ import {
   monitoringScript,
   exporterScript,
 } from "./monitoring";
-import { installDocker, environmentPreflight } from "./environment";
+import {
+  installDocker,
+  environmentPreflight,
+  deploymentPreflightScript,
+  parseDeploymentPreflight,
+} from "./environment";
 import { identifier, idParams, deploySchema, monitorSchema } from "./schemas";
 
 type SavedDeployment = DeploymentSpec & { envCredentialId?: string };
@@ -104,6 +110,24 @@ export class FeatureService {
     if (method === "deployment.save") return this.saveDeployment(params);
     if (method === "monitoring.save") return this.saveMonitoring(params);
     if (method === "deployment.detect") return this.detect(params);
+    if (method === "deployment.preflight") {
+      const p = idParams
+        .extend({ releaseId: identifier.optional() })
+        .strict()
+        .parse(params);
+      const saved = this.deployment(p.id);
+      const release = p.releaseId
+        ? this.core.store.get<SavedRelease>("releases", p.releaseId)
+        : undefined;
+      if (
+        p.releaseId &&
+        (!release ||
+          release.deploymentId !== saved.id ||
+          !["succeeded", "active"].includes(release.status))
+      )
+        throw new Error("该版本不可回退");
+      return this.inspectDeployment(release?.spec ?? saved);
+    }
     if (
       method === "deployment.preview" ||
       method === "deployment.rollback.preview"
@@ -461,21 +485,15 @@ export class FeatureService {
     const accepted = this.core.tasks.preview(spec);
     const task = this.core.tasks.run(accepted.token, spec, {
       prepare: async (task) => {
-        await this.preflight(s.hostId);
-        await this.checkPorts(
-          s.hostId,
-          targetSpec.domain ? [80, 443] : [targetSpec.publicPort],
-          "sre-proxy-" + s.id,
-        );
-        if (targetSpec.domain) {
-          const r = await this.core.ssh.exec(
-            s.hostId,
-            `getent ahostsv4 ${q(targetSpec.domain)} | head -n 1`,
-            { raw: true },
+        const report = await this.inspectDeployment(targetSpec);
+        if (!report.ready)
+          throw new Error(
+            "部署环境预检失败：" +
+              report.checks
+                .filter((c) => c.status === "fail")
+                .map((c) => c.detail)
+                .join("；"),
           );
-          if (r.code !== 0 || !r.stdout.trim())
-            throw new Error("域名尚未解析，请先配置 DNS");
-        }
         if (rollback) return;
         const staged = await stageSource(
           full,
@@ -671,6 +689,51 @@ export class FeatureService {
     if (this.stopped || !t || t.cancelRequested || t.status === "cancelled")
       throw new Error("任务已取消");
   }
+  private async inspectDeployment(
+    s: DeploymentSpec,
+  ): Promise<DeploymentPreflightReport> {
+    const report: DeploymentPreflightReport = {
+      deploymentId: s.id,
+      hostId: s.hostId,
+      checkedAt: new Date().toISOString(),
+      ready: false,
+      checks: [],
+    };
+    try {
+      const result = await this.core.ssh.exec(
+        s.hostId,
+        deploymentPreflightScript(s),
+        { sudo: true, raw: true, timeout: 30000 },
+      );
+      if (result.code !== 0)
+        throw new Error(
+          result.stderr || result.stdout || "SSH/root/sudo 检查失败",
+        );
+      report.checks = parseDeploymentPreflight(result.stdout).map((check) => ({
+        ...check,
+        detail: this.core.store.redact(check.detail),
+      }));
+      const ports = s.domain ? [80, 443] : [s.publicPort];
+      if (
+        (s.domain && !report.checks.some((c) => c.id === "port-443-udp")) ||
+        !ports.every((p) => report.checks.some((c) => c.id === "port-" + p)) ||
+        !s.volumes.every((_, i) =>
+          report.checks.some((c) => c.id === "volume-" + i),
+        )
+      )
+        throw new Error("环境预检缺少端口或挂载检查");
+      report.ready = !report.checks.some((c) => c.status === "fail");
+    } catch (error) {
+      report.checks.push({
+        id: "connection",
+        status: "fail",
+        detail: this.core.store.redact(
+          error instanceof Error ? error.message : String(error),
+        ),
+      });
+    }
+    return report;
+  }
   private async preflight(hostId: string) {
     const r = await this.core.ssh.exec(hostId, environmentPreflight, {
       sudo: true,
@@ -728,9 +791,16 @@ export class FeatureService {
     const r = await this.core.ssh.exec(s.hostId, cmd, { raw: true });
     if (r.code !== 0)
       throw new Error("监控 API 失败：" + this.core.store.redact(r.stderr));
-    return r.stdout.trim()
-      ? JSON.parse(this.core.store.redact(r.stdout))
-      : true;
+    const redactValues = (value: unknown): unknown => {
+      if (typeof value === "string") return this.core.store.redact(value);
+      if (Array.isArray(value)) return value.map(redactValues);
+      if (value && typeof value === "object")
+        return Object.fromEntries(
+          Object.entries(value).map(([key, item]) => [key, redactValues(item)]),
+        );
+      return value;
+    };
+    return r.stdout.trim() ? redactValues(JSON.parse(r.stdout)) : true;
   }
   private async openMonitoring(params: unknown) {
     const { id, service } = idParams

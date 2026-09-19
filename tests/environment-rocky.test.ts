@@ -58,6 +58,12 @@ it("accepts Rocky 9.4 systemd hosts while retaining existing platforms", () => {
   expect(run(environmentPreflight, "rocky", "8.10").status).toBe(1);
 });
 
+it("keeps deployed containers available after host reboot by enabling Docker", () => {
+  const result = run(installDocker, "rocky", "9.4", "", true);
+  expect(result.status, result.stderr).toBe(0);
+  expect(result.stdout).toContain("SYSTEMCTL enable --now docker");
+});
+
 it("installs Docker and Compose from the official Rocky-documented RPM repository", () => {
   const result = run(installDocker);
   expect(result.status, result.stderr).toBe(0);

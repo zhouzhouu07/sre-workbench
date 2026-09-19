@@ -46,7 +46,9 @@ const resultSchema = z
       .max(10)
       .default([]),
   })
-  .strict();
+  // Model providers may add metadata outside the requested result. Discard it;
+  // only validated script-level fields can carry execution permissions.
+  .strip();
 export function parseAgentResult(value: string | unknown): AgentResult {
   try {
     return resultSchema.parse(

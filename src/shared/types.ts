@@ -149,3 +149,16 @@ declare global {
     sre: DesktopApi;
   }
 }
+
+export interface DeploymentPreflightCheck {
+  id: string;
+  status: "pass" | "warn" | "fail";
+  detail: string;
+}
+export interface DeploymentPreflightReport {
+  deploymentId: string;
+  hostId: string;
+  checkedAt: string;
+  ready: boolean;
+  checks: DeploymentPreflightCheck[];
+}

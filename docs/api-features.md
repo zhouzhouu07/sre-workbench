@@ -4,6 +4,7 @@ FeatureService(core, {gitPath:string,tempDir:string,openExternal:(url:string)=>P
 
 - deployment.save { ...DeploymentSpec, id?:string, gitToken?:string } => DeploymentSpec. env secrets encrypted at rest, returned env values redacted; editing preserves redacted values. Use a separate secret reference per deployment; no plaintext secret values in snapshot.
 - deployment.detect {path:string,template} => inferred fields for wizard. Read local package.json/requirements.txt/Dockerfile; never execute local project scripts.
+- deployment.preflight {id,releaseId?} => {deploymentId,hostId,checkedAt,ready,checks:[{id,status:'pass'|'warn'|'fail',detail}]}. Read-only SSH inspection of platform, privilege, systemd/tools, resources, Docker/Compose, runtime conflicts, TCP ports (and UDP 443 for domains), DNS and bind directories; includes SELinux/firewall advisories. Failed checks block the UI. The run preparation repeats the checks before uploading sources, including when callers bypass the UI.
 - deployment.preview {id} => {token,summary,script}; read-only preflight allowed. No writes/clone/upload until confirm.
 - deployment.run {id,token} => Task; approval bound saved spec plus target identity. Preparation integrated in same-host scheduling or safely bound isolated staging. Remote job healthchecks and switches Caddy only on success, retains prior version; releases reconciled from remote success marker.
 - deployment.rollback.preview {id,releaseId} => same preview

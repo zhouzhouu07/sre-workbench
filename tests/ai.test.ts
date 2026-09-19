@@ -9,6 +9,14 @@ import {
 import { createServer, type RequestListener } from "node:http";
 import type { AddressInfo } from "node:net";
 describe("AI boundary", () => {
+  it("ignores top-level model metadata without turning it into script permissions", () => {
+    expect(
+      parseAgentResult('{"summary":"连接正常","scripts":[],"sudo":true}'),
+    ).toEqual({ summary: "连接正常", scripts: [] });
+    expect(() =>
+      parseAgentResult('{"summary":"ok","scripts":[{"body":4}],"sudo":true}'),
+    ).toThrow();
+  });
   it("rejects remote plaintext and URL-embedded credentials", () => {
     expect(() => validateApiUrl("http://example.com/v1")).toThrow();
     expect(() => validateApiUrl("https://user:pass@example.com")).toThrow();
@@ -208,21 +216,19 @@ describe("AI HTTP integration", () => {
       let data = "";
       for await (const chunk of req) data += chunk;
       received = JSON.parse(data);
-      res
-        .writeHead(200, { "Content-Type": "application/json" })
-        .end(
-          JSON.stringify({
-            summary: "分析结果",
-            scripts: [
-              {
-                name: "检查",
-                body: "uptime",
-                description: "只读",
-                sudo: false,
-              },
-            ],
-          }),
-        );
+      res.writeHead(200, { "Content-Type": "application/json" }).end(
+        JSON.stringify({
+          summary: "分析结果",
+          scripts: [
+            {
+              name: "检查",
+              body: "uptime",
+              description: "只读",
+              sudo: false,
+            },
+          ],
+        }),
+      );
     });
     try {
       const preview = await s.ai.handle("ai.preview", {

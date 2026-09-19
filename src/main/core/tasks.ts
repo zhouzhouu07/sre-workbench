@@ -27,7 +27,7 @@ export function renderJobWrapper(directory: string): string {
   return `#!/bin/bash
 cd -- ${q(directory)} || exit 125
 /bin/bash ./work.sh 2>&1 | {
-  head -c 1000000 > ./output.log || exit 125
+  stdbuf -o0 head -c 1000000 > ./output.log || exit 125
   dd bs=1 count=1 of=./output.overflow status=none || exit 125
   if test -s ./output.overflow; then printf '\\n[SRE: output exceeded 1000000 bytes; remaining output discarded]\\n' >> ./output.log; fi
   cat > /dev/null
@@ -245,7 +245,7 @@ export class TaskManager {
       this.update(task);
       const tools = await this.ssh.exec(
         task.hostId,
-        "command -v systemd-run >/dev/null && command -v systemctl >/dev/null && command -v bash >/dev/null && command -v head >/dev/null && command -v dd >/dev/null",
+        "command -v systemd-run >/dev/null && command -v systemctl >/dev/null && command -v bash >/dev/null && command -v head >/dev/null && command -v dd >/dev/null && command -v stdbuf >/dev/null",
         { sudo: task.spec.sudo },
       );
       if (tools.code !== 0)
