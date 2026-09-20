@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
+import { version } from "../../package.json";
 import {
   Alert,
   Button,
@@ -142,7 +143,7 @@ export default function App() {
               <strong>{items.find((i) => i.key === page)?.label}</strong>
             </Space>
             <Space>
-              <span className="pill">个人版 · v0.1.1</span>
+              <span className="pill">个人版 · v{version}</span>
               <Button
                 type="text"
                 aria-label="刷新数据"
@@ -281,9 +282,10 @@ function Overview({
         <Card className="ai-promo">
           <div className="ai-symbol">✦</div>
           <Tag color="cyan">AI 辅助运维</Tag>
-          <Typography.Title level={3}>让排查更有方向</Typography.Title>
+          <Typography.Title level={3}>从需求到执行结果</Typography.Title>
           <p>
-            把日志与问题交给助手，获取分析和可审阅的脚本。每次执行，都由你确认。
+            选择只读、确认或自主执行权限，让 AI
+            创建项目、执行任务并反馈验证结果。
           </p>
           <Button onClick={() => navigate("ai")}>
             打开 AI 助手 <ArrowRightOutlined />

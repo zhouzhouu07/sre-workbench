@@ -11,6 +11,7 @@ import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { Backend } from "./core/backend";
 import { AIService } from "./features/ai";
+import { AgentService } from "./features/agent";
 import { FeatureService } from "./features/operations";
 import { errorMessage } from "./core/errors";
 import type { AppEvent } from "../shared/types";
@@ -19,6 +20,7 @@ if (process.env.SRE_DATA_DIR) app.setPath("userData", process.env.SRE_DATA_DIR);
 let window: BrowserWindow | undefined;
 let core: Backend | undefined;
 let ai: AIService | undefined;
+let agent: AgentService | undefined;
 let operations: FeatureService | undefined;
 let quitting = false;
 const emit = (event: AppEvent) => {
@@ -51,6 +53,7 @@ const start = async () => {
   });
   await core.init();
   ai = new AIService(core.store, emit);
+  agent = new AgentService(core, ai, emit);
   operations = new FeatureService(core, {
     gitPath: app.isPackaged
       ? join(process.resourcesPath, "git", "cmd", "git.exe")
@@ -77,8 +80,9 @@ const start = async () => {
         throw new Error("操作名无效");
       if (JSON.stringify(params ?? {}).length > 2_000_000)
         throw new Error("请求过大");
-      const value =
-        method.startsWith("ai.") || method.startsWith("provider.")
+      const value = method.startsWith("ai.session.")
+        ? await agent!.handle(method, params)
+        : method.startsWith("ai.") || method.startsWith("provider.")
           ? await ai!.handle(method, params)
           : method.startsWith("deployment.") || method.startsWith("monitoring.")
             ? await operations!.handle(method, params)
@@ -131,6 +135,7 @@ app.on("before-quit", (event) => {
   event.preventDefault();
   quitting = true;
   void (async () => {
+    await agent?.close();
     ai?.close();
     await operations?.close();
     await core?.close();

@@ -21,6 +21,7 @@ const COLLECTIONS = [
   "releases",
   "monitoring",
   "providers",
+  "aiSessions",
 ];
 export class Store {
   private db!: Database;
@@ -109,7 +110,10 @@ export class Store {
     this.db.run("DELETE FROM secrets WHERE id=?", [id]);
     this.persist();
   }
-  redact(text: string): string {
+  redact(
+    text: string,
+    options: { shortSecrets?: "token" | "contextual" } = {},
+  ): string {
     const rows = this.db.exec("SELECT value FROM secrets");
     const secrets = new Set<string>();
     for (const row of rows[0]?.values || []) {
@@ -131,13 +135,46 @@ export class Store {
       } catch {}
       for (const secret of values) if (secret.length > 0) secrets.add(secret);
     }
+    const escape = (value: string) =>
+      value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
     const expression = [...secrets]
+      .filter((s) => s.length >= 4)
       .sort((a, b) => b.length - a.length)
       .map((s) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"))
       .join("|");
-    const result = expression
+    let result = expression
       ? text.replace(new RegExp(expression, "g"), "[REDACTED]")
       : text;
+    for (const secret of [...secrets]
+      .filter((s) => s.length < 4)
+      .sort((a, b) => b.length - a.length)) {
+      const escaped = escape(secret);
+      // Short credentials must not destroy IPs, versions, paths or code numbers.
+      // Preserve source-code numbers while masking explicit credential contexts.
+      const credentialContexts = [
+        `([a-z][a-z0-9+.-]*://[^\\s/@:]+:)${escaped}(?=@)`,
+        `(\\bsshpass\\s+-p\\s*["']?)${escaped}(?=["'\\s;]|$)`,
+        `((?:--password(?:=|\\s+)|--user(?:=|\\s+)|-u\\s+)["']?(?:[^\\s:"']+:)?)${escaped}(?=["'\\s;]|$)`,
+      ];
+      for (const pattern of credentialContexts)
+        result = result.replace(new RegExp(pattern, "gi"), "$1[REDACTED]");
+      result = result.replace(
+        new RegExp(
+          `((?:password|passwd|sudoPassword|passphrase|api[_-]?key|token|secret|密码|口令)["']?\\s*(?:[:=]|is\\b|是|为)\\s*["']?)${escaped}(?=["'\\s,;}]|$)`,
+          "gi",
+        ),
+        "$1[REDACTED]",
+      );
+      if (options.shortSecrets !== "contextual") {
+        result = result.replace(
+          new RegExp(
+            `(?<![\\p{L}\\p{N}_.:/\\\\-])${escaped}(?![\\p{L}\\p{N}_.:/\\\\-])`,
+            "gu",
+          ),
+          "[REDACTED]",
+        );
+      } else if (result.trim() === secret) result = "[REDACTED]";
+    }
     return result.replace(
       /(authorization\s*[:=]\s*(?:bearer\s+)?)[^\s]+/gi,
       "$1[REDACTED]",
@@ -145,7 +182,10 @@ export class Store {
   }
   snapshot(): Snapshot {
     const snapshot = Object.fromEntries(
-      COLLECTIONS.map((c) => [c, this.list(c)]),
+      COLLECTIONS.filter((c) => c !== "aiSessions").map((c) => [
+        c,
+        this.list(c),
+      ]),
     ) as unknown as Snapshot;
     snapshot.tasks = snapshot.tasks.map((task) => {
       const { spec, directory, cancelRequested, system, submitted, ...safe } =

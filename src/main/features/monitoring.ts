@@ -2,6 +2,12 @@ import { stringify } from "yaml";
 import type { MonitoringStack } from "../../shared/types";
 import { shellQuote as q } from "../core/safety";
 
+export const monitoringPorts = (s: MonitoringStack) => ({
+  grafana: s.grafanaPort ?? 3000,
+  prometheus: s.prometheusPort ?? 9090,
+  alertmanager: s.alertmanagerPort ?? 9093,
+});
+
 export const monitorBase = (id: string) =>
   "/opt/sre-workbench/monitoring/" + id;
 export function monitoringFiles(
@@ -177,7 +183,7 @@ export function monitoringFiles(
           `--storage.tsdb.retention.time=${s.retentionDays}d`,
           "--storage.tsdb.path=/prometheus",
         ],
-        ports: ["127.0.0.1:9090:9090"],
+        ports: [`127.0.0.1:${monitoringPorts(s).prometheus}:9090`],
         volumes: [
           config("prometheus.yml", "/etc/prometheus/prometheus.yml"),
           config("rules.yml", "/etc/prometheus/rules.yml"),
@@ -191,7 +197,7 @@ export function monitoringFiles(
           "--config.file=/etc/alertmanager/alertmanager.yml",
           "--storage.path=/alertmanager",
         ],
-        ports: ["127.0.0.1:9093:9093"],
+        ports: [`127.0.0.1:${monitoringPorts(s).alertmanager}:9093`],
         volumes: [
           config("alertmanager.yml", "/etc/alertmanager/alertmanager.yml"),
           config("secrets", "/etc/alertmanager/secrets"),
@@ -202,10 +208,11 @@ export function monitoringFiles(
         image: "grafana/grafana:11.6.0",
         restart: "unless-stopped",
         environment: {
+          GF_SECURITY_ADMIN_USER: s.grafanaUsername ?? "admin",
           GF_SECURITY_ADMIN_PASSWORD__FILE: "/run/secrets/grafana_password",
           GF_USERS_ALLOW_SIGN_UP: "false",
         },
-        ports: ["127.0.0.1:3000:3000"],
+        ports: [`127.0.0.1:${monitoringPorts(s).grafana}:3000`],
         volumes: [
           config("secrets/grafana_password", "/run/secrets/grafana_password"),
           config("provisioning", "/etc/grafana/provisioning"),
@@ -254,10 +261,10 @@ docker run --rm -v "$base:/etc/prometheus:ro,z" --entrypoint /bin/promtool prom/
 docker run --rm -v "$base:/etc/alertmanager:ro,z" --entrypoint /bin/amtool prom/alertmanager:v0.28.1 check-config /etc/alertmanager/alertmanager.yml
 docker compose -f "$base/compose.yml" config --quiet
 docker compose -f "$base/compose.yml" up -d --force-recreate
-for port in 9090 9093 3000; do
+for port in ${monitoringPorts(s).prometheus} ${monitoringPorts(s).alertmanager} ${monitoringPorts(s).grafana}; do
  ok=0
  for attempt in $(seq 1 60); do
-  case "$port" in 3000) route=/api/health;; *) route=/-/ready;; esac
+  case "$port" in ${monitoringPorts(s).grafana}) route=/api/health;; *) route=/-/ready;; esac
   if curl -fsS --max-time 3 "http://127.0.0.1:$port$route" >/dev/null; then ok=1; break; fi
   sleep 2
  done

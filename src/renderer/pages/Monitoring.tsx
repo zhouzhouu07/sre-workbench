@@ -58,9 +58,20 @@ export default function Monitoring({
     form.resetFields();
     form.setFieldsValue(
       m
-        ? { ...m, smtpEnabled: m.smtpEnabled ?? !!m.smtpHost }
+        ? {
+            grafanaUsername: "admin",
+            grafanaPort: 3000,
+            prometheusPort: 9090,
+            alertmanagerPort: 9093,
+            ...m,
+            smtpEnabled: m.smtpEnabled ?? !!m.smtpHost,
+          }
         : {
             name: "基础设施监控",
+            grafanaUsername: "admin",
+            grafanaPort: 3000,
+            prometheusPort: 9090,
+            alertmanagerPort: 9093,
             retentionDays: 15,
             cpuThreshold: 85,
             memoryThreshold: 90,
@@ -437,18 +448,102 @@ export default function Monitoring({
               <InputNumber min={1} max={365} />
             </Form.Item>
             <Form.Item
+              name="grafanaUsername"
+              label="Grafana 初始管理员用户名"
+              rules={[
+                { required: true, message: "请输入用户名" },
+                {
+                  pattern: /^[a-zA-Z0-9_.@-]+$/,
+                  message: "仅支持字母、数字及 _.@-",
+                },
+              ]}
+            >
+              <Input maxLength={100} />
+            </Form.Item>
+            <Form.Item
               name="grafanaPassword"
-              label="Grafana 管理员密码"
+              label="Grafana 初始管理员密码"
               rules={[
                 { required: !editing, message: "请输入 Grafana 管理员密码" },
                 { min: 12, message: "密码至少 12 位" },
               ]}
             >
               <Input.Password
-                placeholder={editing ? "留空保留原密码" : "至少 12 位"}
+                placeholder={
+                  editing ? "留空保留初始化配置，不重置已有账号" : "至少 12 位"
+                }
               />
             </Form.Item>
           </div>
+          <Alert
+            type="info"
+            showIcon
+            title="Grafana 账号仅在首次创建数据卷时初始化。重新部署不修改已有账号；请使用原账号登录，在 Grafana 内管理用户名和密码。"
+          />
+          <Collapse
+            items={[
+              {
+                key: "ports",
+                label: "高级设置：监控访问端口",
+                forceRender: true,
+                children: (
+                  <>
+                    <p>
+                      管理端口仅监听服务器回环地址，通过 SSH
+                      隧道访问。另建监控实例需使用不同端口，并消耗额外资源。
+                    </p>
+                    <div className="three-col">
+                      {(
+                        [
+                          ["grafanaPort", "Grafana 端口"],
+                          ["prometheusPort", "Prometheus 端口"],
+                          ["alertmanagerPort", "Alertmanager 端口"],
+                        ] as const
+                      ).map(([name, label]) => (
+                        <Form.Item
+                          key={name}
+                          name={name}
+                          label={label}
+                          dependencies={[
+                            "grafanaPort",
+                            "prometheusPort",
+                            "alertmanagerPort",
+                          ].filter((n) => n !== name)}
+                          rules={[
+                            {
+                              type: "integer",
+                              required: true,
+                              min: 1,
+                              max: 65535,
+                              message: "请输入 1–65535 的整数",
+                            },
+                            ({ getFieldValue }) => ({
+                              validator(_, value) {
+                                return [
+                                  "grafanaPort",
+                                  "prometheusPort",
+                                  "alertmanagerPort",
+                                ].some(
+                                  (n) =>
+                                    n !== name && getFieldValue(n) === value,
+                                )
+                                  ? Promise.reject(
+                                      new Error("三个监控端口不能重复"),
+                                    )
+                                  : Promise.resolve();
+                              },
+                            }),
+                          ]}
+                        >
+                          <InputNumber min={1} max={65535} />
+                        </Form.Item>
+                      ))}
+                    </div>
+                  </>
+                ),
+              },
+            ]}
+          />
           <div className="three-col">
             <Form.Item
               name="cpuThreshold"

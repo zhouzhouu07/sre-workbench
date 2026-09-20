@@ -89,6 +89,10 @@ export interface MonitoringStack {
   name: string;
   targets: { hostId: string; address: string }[];
   retentionDays: number;
+  grafanaUsername?: string;
+  grafanaPort?: number;
+  prometheusPort?: number;
+  alertmanagerPort?: number;
   cpuThreshold: number;
   memoryThreshold: number;
   diskThreshold: number;

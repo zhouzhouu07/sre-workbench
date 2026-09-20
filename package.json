@@ -1,6 +1,6 @@
 {
   "name": "sre-workbench",
-  "version": "0.1.2",
+  "version": "0.2.0",
   "description": "SRE 运维工作台",
   "author": "SRE Workbench",
   "private": true,

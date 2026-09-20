@@ -92,6 +92,16 @@ export const monitorSchema = z
       .min(1, "请至少添加一台采集主机")
       .max(20),
     retentionDays: z.number().int().min(1).max(365),
+    grafanaUsername: z
+      .string()
+      .trim()
+      .min(1)
+      .max(100)
+      .regex(/^[a-zA-Z0-9_.@-]+$/, "用户名仅支持字母、数字及 _.@-")
+      .default("admin"),
+    grafanaPort: z.number().int().min(1).max(65535).default(3000),
+    prometheusPort: z.number().int().min(1).max(65535).default(9090),
+    alertmanagerPort: z.number().int().min(1).max(65535).default(9093),
     cpuThreshold: z.number().min(1).max(100),
     memoryThreshold: z.number().min(1).max(100),
     diskThreshold: z.number().min(1).max(100),
@@ -118,6 +128,21 @@ export const monitorSchema = z
   })
   .strict()
   .superRefine((value, ctx) => {
+    const ports = [
+      "grafanaPort",
+      "prometheusPort",
+      "alertmanagerPort",
+    ] as const;
+    for (const field of ports) {
+      if (
+        ports.some((other) => other !== field && value[other] === value[field])
+      )
+        ctx.addIssue({
+          code: "custom",
+          path: [field],
+          message: "三个监控端口不能重复",
+        });
+    }
     if (value.smtpEnabled ?? !!value.smtpHost) {
       if (!value.smtpHost)
         ctx.addIssue({

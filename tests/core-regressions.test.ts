@@ -1,8 +1,206 @@
-import {it,expect} from 'vitest';import {mkdtempSync,rmSync,writeFileSync,readFileSync,statSync} from 'node:fs';import {spawnSync} from 'node:child_process';import {tmpdir} from 'node:os';import {join} from 'node:path';import {Store} from '../src/main/core/store';import {TaskManager,renderJobWrapper} from '../src/main/core/tasks';import type {SSHManager} from '../src/main/core/ssh';
-async function setup(){const dir=mkdtempSync(join(tmpdir(),'sre-regression-'));const store=new Store(dir,s=>s,s=>s);await store.init();return {dir,store};}
-const host={id:'h',name:'h',username:'root',fingerprint:'fp'};const spec={hostId:'h',title:'t',script:'echo ok',sudo:false,timeout:30};
-it('redacts one and two character credentials',async()=>{const {dir,store}=await setup();try{store.setSecret(JSON.stringify({password:'pw',sudoPassword:'x'}));expect(store.redact('pw x')).toBe('[REDACTED] [REDACTED]');}finally{store.close();rmSync(dir,{recursive:true,force:true});}});
-it('records a confirmed systemd stop even when the transient unit has already disappeared',async()=>{const {dir,store}=await setup();const ssh={exec:async()=>({code:0,stdout:'LoadState=not-found\n\nSRE_LOG_BEGIN\n',stderr:''})} as unknown as SSHManager;const tasks=new TaskManager(store,ssh,()=>{});store.put('tasks',{id:'t',hostId:'h',status:'running',title:'t',logs:'',createdAt:'x',updatedAt:'x',directory:'/job',unit:'sre-t',submitted:true,system:true,spec});try{const result=await tasks.cancel('t');expect(result.status).toBe('cancelled');expect(store.get<any>('tasks','t').status).toBe('cancelled');}finally{await tasks.close();store.close();rmSync(dir,{recursive:true,force:true});}});
-it('runs preparation under scheduler, records failure and calls completion hook',async()=>{const {dir,store}=await setup();let execs=0;const ssh={host:()=>host,exec:async()=>{execs++;return {code:0,stdout:'',stderr:''};}} as unknown as SSHManager;const tasks=new TaskManager(store,ssh,()=>{});let after='';try{const p=tasks.preview(spec);const task=tasks.run(p.token,spec,{prepare:async()=>{throw new Error('archive failed');},after:async task=>{after=task.status;}});await new Promise(r=>setTimeout(r,30));expect(store.get<any>('tasks',task.id).status).toBe('failed');expect(after).toBe('failed');expect(execs).toBe(0);}finally{await tasks.close();store.close();rmSync(dir,{recursive:true,force:true});}});
-it('cancellation during preparation never submits the remote job',async()=>{const {dir,store}=await setup();let finish!:()=>void;let started=false,execs=0;const ssh={host:()=>host,exec:async()=>{execs++;return {code:0,stdout:'',stderr:''};}} as unknown as SSHManager;const tasks=new TaskManager(store,ssh,()=>{});try{const p=tasks.preview(spec);const task=tasks.run(p.token,spec,{prepare:async()=>{started=true;await new Promise<void>(r=>finish=r);}});expect(started).toBe(true);await tasks.cancel(task.id);finish();await new Promise(r=>setTimeout(r,30));expect(store.get<any>('tasks',task.id).status).toBe('cancelled');expect(execs).toBe(0);}finally{await tasks.close();store.close();rmSync(dir,{recursive:true,force:true});}});
-it('bounds remote output on disk and reports overflow as a nonzero result while preserving script failures',()=>{const dir=mkdtempSync(join(tmpdir(),'sre-wrapper-'));try{writeFileSync(join(dir,'work.sh'),'head -c 2000000 /dev/zero\n');writeFileSync(join(dir,'run.sh'),renderJobWrapper(dir.replaceAll('\\','/')));const run=spawnSync('C:/Program Files/Git/bin/bash.exe',[join(dir,'run.sh')],{timeout:10000});expect(run.status).toBe(122);expect(statSync(join(dir,'output.log')).size).toBeLessThan(1001000);expect(readFileSync(join(dir,'exit.code'),'utf8')).toBe('122');writeFileSync(join(dir,'work.sh'),'echo failed; exit 7\n');const failed=spawnSync('C:/Program Files/Git/bin/bash.exe',[join(dir,'run.sh')],{timeout:10000});expect(failed.status).toBe(7);}finally{rmSync(dir,{recursive:true,force:true});}});
+import { it, expect } from "vitest";
+import {
+  mkdtempSync,
+  rmSync,
+  writeFileSync,
+  readFileSync,
+  statSync,
+} from "node:fs";
+import { spawnSync } from "node:child_process";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { Store } from "../src/main/core/store";
+import { TaskManager, renderJobWrapper } from "../src/main/core/tasks";
+import type { SSHManager } from "../src/main/core/ssh";
+async function setup() {
+  const dir = mkdtempSync(join(tmpdir(), "sre-regression-"));
+  const store = new Store(
+    dir,
+    (s) => s,
+    (s) => s,
+  );
+  await store.init();
+  return { dir, store };
+}
+it("preserves technical identifiers when short credentials overlap digits", async () => {
+  const { dir, store } = await setup();
+  try {
+    store.setSecret(JSON.stringify({ password: "1" }));
+    expect(store.redact("127.0.0.1:18085 /opt/blog-123 nginx:1.27")).toBe(
+      "127.0.0.1:18085 /opt/blog-123 nginx:1.27",
+    );
+    expect(store.redact("password=1 value 1")).toBe(
+      "password=[REDACTED] value [REDACTED]",
+    );
+  } finally {
+    store.close();
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+const host = { id: "h", name: "h", username: "root", fingerprint: "fp" };
+it("redacts short secrets in URI credentials and credential command arguments", async () => {
+  const { dir, store } = await setup();
+  try {
+    store.setSecret(JSON.stringify({ password: "123" }));
+    const redact = (s: string) =>
+      store.redact(s, { shortSecrets: "contextual" });
+    expect(redact("DATABASE_URL=postgres://admin:123@localhost/app")).toBe(
+      "DATABASE_URL=postgres://admin:[REDACTED]@localhost/app",
+    );
+    expect(redact("sshpass -p '123' ssh host")).toBe(
+      "sshpass -p '[REDACTED]' ssh host",
+    );
+    expect(redact("curl --user admin:123 http://localhost/")).toBe(
+      "curl --user admin:[REDACTED] http://localhost/",
+    );
+    expect(redact("count = 123; http://127.0.0.1:123/")).toBe(
+      "count = 123; http://127.0.0.1:123/",
+    );
+  } finally {
+    store.close();
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+const spec = {
+  hostId: "h",
+  title: "t",
+  script: "echo ok",
+  sudo: false,
+  timeout: 30,
+};
+it("redacts one and two character credentials", async () => {
+  const { dir, store } = await setup();
+  try {
+    store.setSecret(JSON.stringify({ password: "pw", sudoPassword: "x" }));
+    expect(store.redact("pw x")).toBe("[REDACTED] [REDACTED]");
+  } finally {
+    store.close();
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+it("records a confirmed systemd stop even when the transient unit has already disappeared", async () => {
+  const { dir, store } = await setup();
+  const ssh = {
+    exec: async () => ({
+      code: 0,
+      stdout: "LoadState=not-found\n\nSRE_LOG_BEGIN\n",
+      stderr: "",
+    }),
+  } as unknown as SSHManager;
+  const tasks = new TaskManager(store, ssh, () => {});
+  store.put("tasks", {
+    id: "t",
+    hostId: "h",
+    status: "running",
+    title: "t",
+    logs: "",
+    createdAt: "x",
+    updatedAt: "x",
+    directory: "/job",
+    unit: "sre-t",
+    submitted: true,
+    system: true,
+    spec,
+  });
+  try {
+    const result = await tasks.cancel("t");
+    expect(result.status).toBe("cancelled");
+    expect(store.get<any>("tasks", "t").status).toBe("cancelled");
+  } finally {
+    await tasks.close();
+    store.close();
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+it("runs preparation under scheduler, records failure and calls completion hook", async () => {
+  const { dir, store } = await setup();
+  let execs = 0;
+  const ssh = {
+    host: () => host,
+    exec: async () => {
+      execs++;
+      return { code: 0, stdout: "", stderr: "" };
+    },
+  } as unknown as SSHManager;
+  const tasks = new TaskManager(store, ssh, () => {});
+  let after = "";
+  try {
+    const p = tasks.preview(spec);
+    const task = tasks.run(p.token, spec, {
+      prepare: async () => {
+        throw new Error("archive failed");
+      },
+      after: async (task) => {
+        after = task.status;
+      },
+    });
+    await new Promise((r) => setTimeout(r, 30));
+    expect(store.get<any>("tasks", task.id).status).toBe("failed");
+    expect(after).toBe("failed");
+    expect(execs).toBe(0);
+  } finally {
+    await tasks.close();
+    store.close();
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+it("cancellation during preparation never submits the remote job", async () => {
+  const { dir, store } = await setup();
+  let finish!: () => void;
+  let started = false,
+    execs = 0;
+  const ssh = {
+    host: () => host,
+    exec: async () => {
+      execs++;
+      return { code: 0, stdout: "", stderr: "" };
+    },
+  } as unknown as SSHManager;
+  const tasks = new TaskManager(store, ssh, () => {});
+  try {
+    const p = tasks.preview(spec);
+    const task = tasks.run(p.token, spec, {
+      prepare: async () => {
+        started = true;
+        await new Promise<void>((r) => (finish = r));
+      },
+    });
+    expect(started).toBe(true);
+    await tasks.cancel(task.id);
+    finish();
+    await new Promise((r) => setTimeout(r, 30));
+    expect(store.get<any>("tasks", task.id).status).toBe("cancelled");
+    expect(execs).toBe(0);
+  } finally {
+    await tasks.close();
+    store.close();
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+it("bounds remote output on disk and reports overflow as a nonzero result while preserving script failures", () => {
+  const dir = mkdtempSync(join(tmpdir(), "sre-wrapper-"));
+  try {
+    writeFileSync(join(dir, "work.sh"), "head -c 2000000 /dev/zero\n");
+    writeFileSync(
+      join(dir, "run.sh"),
+      renderJobWrapper(dir.replaceAll("\\", "/")),
+    );
+    const run = spawnSync(
+      "C:/Program Files/Git/bin/bash.exe",
+      [join(dir, "run.sh")],
+      { timeout: 10000 },
+    );
+    expect(run.status).toBe(122);
+    expect(statSync(join(dir, "output.log")).size).toBeLessThan(1001000);
+    expect(readFileSync(join(dir, "exit.code"), "utf8")).toBe("122");
+    writeFileSync(join(dir, "work.sh"), "echo failed; exit 7\n");
+    const failed = spawnSync(
+      "C:/Program Files/Git/bin/bash.exe",
+      [join(dir, "run.sh")],
+      { timeout: 10000 },
+    );
+    expect(failed.status).toBe(7);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});

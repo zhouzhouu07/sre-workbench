@@ -29,6 +29,8 @@ test("empty workbench navigates, validates hosts and preserves saved metadata", 
     await page.getByRole("menuitem", { name: "脚本库" }).click();
     await expect(page.getByRole("heading", { name: "脚本库" })).toBeVisible();
     await page.getByRole("menuitem", { name: "AI 助手" }).click();
+    await expect(page.getByRole("heading", { name: "AI 任务助手" })).toBeVisible();
+    await page.getByRole("tab", { name: "脚本助手（兼容接口）" }).click();
     await expect(page.getByText("发送前预览")).toBeVisible();
     await app.close();
     app = await launch();

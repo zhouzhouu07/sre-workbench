@@ -24,6 +24,7 @@ import {
 import {
   monitorBase,
   monitoringFiles,
+  monitoringPorts,
   monitoringScript,
   exporterScript,
 } from "./monitoring";
@@ -291,9 +292,20 @@ export class FeatureService {
     if (
       this.core.store
         .list<MonitoringStack>("monitoring")
-        .some((m) => m.hostId === p.hostId && m.id !== p.id)
+        .some(
+          (m) =>
+            m.hostId === p.hostId &&
+            m.id !== p.id &&
+            Object.values(monitoringPorts(m)).some((port) =>
+              Object.values(monitoringPorts(p as MonitoringStack)).includes(
+                port,
+              ),
+            ),
+        )
     )
-      throw new Error("每台监控服务器首版只能部署一套监控");
+      throw new Error(
+        "所选端口与本机保存的另一监控方案重复，请编辑原方案或选择不同端口",
+      );
     if (
       (!old && !p.grafanaPassword) ||
       (p.grafanaPassword && p.grafanaPassword.length < 12)
@@ -327,6 +339,14 @@ export class FeatureService {
       webhookCredentialId,
       webhook: webhook ? "[REDACTED]" : "",
     };
+    for (const [key, tunnel] of this.tunnels) {
+      if (key.startsWith(saved.id + ":")) {
+        for (const socket of tunnel.sockets) socket.destroy();
+        tunnel.server.close();
+        tunnel.client.end();
+        this.tunnels.delete(key);
+      }
+    }
     this.core.store.put("monitoring", saved);
     return saved;
   }
@@ -606,13 +626,18 @@ export class FeatureService {
       summary: `安装/更新 ${s.targets.length} 台主机的 Node Exporter 和监控服务器。root 执行；按需安装 Docker；密钥以受限文件写入；保留监控卷，备份原配置。`,
     };
   }
-  private runMonitoring(params: unknown) {
+  private async runMonitoring(params: unknown) {
     const { id, token } = idParams
       .extend({ token: z.string() })
       .strict()
       .parse(params);
     const s = this.monitor(id);
     const a = this.consume(token, this.approvalKey("monitor", s));
+    await this.checkPorts(
+      s.hostId,
+      Object.values(monitoringPorts(s)),
+      "sre-mon-" + s.id,
+    );
     const exporters: Task[] = [];
     for (const t of s.targets) {
       const spec: ExecutionSpec = {
@@ -660,7 +685,11 @@ export class FeatureService {
           await new Promise((r) => setTimeout(r, 1000));
         }
         await this.preflight(s.hostId);
-        await this.checkPorts(s.hostId, [3000, 9090, 9093], "sre-mon-" + s.id);
+        await this.checkPorts(
+          s.hostId,
+          Object.values(monitoringPorts(s)),
+          "sre-mon-" + s.id,
+        );
         await this.stageDirectory(s.hostId, a.stage);
         const files = monitoringFiles(
           this.fullMonitor(s),
@@ -745,13 +774,43 @@ export class FeatureService {
       );
   }
   private async checkPorts(hostId: string, ports: number[], project: string) {
+    if (project.startsWith("sre-mon-")) {
+      const listed = await this.core.ssh.exec(
+        hostId,
+        "if command -v docker >/dev/null; then docker ps --format '{{.Label \"com.docker.compose.project\"}}\\t{{.Names}}\\t{{.Ports}}'; fi",
+        { sudo: true, raw: true },
+      );
+      if (listed.code !== 0)
+        throw new Error("无法检查 Docker 端口，请确认 Docker 服务和访问权限");
+      for (const line of listed.stdout.trim().split(/\r?\n/)) {
+        const [owner, name, bindings = ""] = line.split("\t");
+        if (owner === project) continue;
+        for (const port of ports) {
+          const occupied = [
+            ...bindings.matchAll(/:(\d+)(?:-(\d+))?->[^,]+\/tcp/g),
+          ].some((m) => port >= Number(m[1]) && port <= Number(m[2] ?? m[1]));
+          if (occupied)
+            throw new Error(
+              `监控端口 ${port} 已被${owner?.startsWith("sre-mon-") ? "另一工作台监控方案 " + owner.slice(8) : "服务 " + (name || owner)}占用。请编辑原方案或选择空闲端口；新方案不会修改旧 Grafana 账号`,
+            );
+        }
+      }
+    }
     const script = `set -eu\ncommand -v ss >/dev/null\nfor port in ${ports.join(" ")}; do\n occupied=$(ss -H -ltn "sport = :$port" 2>/dev/null || true)\n if test -n "$occupied"; then\n  command -v docker >/dev/null || { echo "Port occupied: $port" >&2; exit 1; }\n  ${project === "sre-node-exporter" ? `test -n "$(docker ps -q --filter ${q("label=com.docker.compose.project=" + project)})" && continue` : ":"}\n  found=$(docker ps --filter ${q("label=com.docker.compose.project=" + project)} --format '{{.Ports}}')\n  printf '%s' "$found" | grep -q ":$port->" || { echo "Port occupied by unmanaged service: $port" >&2; exit 1; }\n fi\ndone`;
     const r = await this.core.ssh.exec(hostId, script, {
       sudo: true,
       raw: true,
     });
-    if (r.code !== 0)
-      throw new Error(this.core.store.redact(r.stderr || "端口冲突"));
+    if (r.code !== 0) {
+      const occupied = /Port occupied(?: by unmanaged service)?: (\d+)/.exec(
+        r.stderr,
+      );
+      throw new Error(
+        occupied
+          ? `端口 ${occupied[1]} 被当前方案以外的服务占用，请检查服务器或选择空闲端口`
+          : this.core.store.redact(r.stderr || "端口检查失败"),
+      );
+    }
   }
   private async stageDirectory(hostId: string, path: string) {
     if (!/^\/tmp\/sre-stage-[0-9a-f-]{36}$/.test(path))
@@ -775,12 +834,46 @@ export class FeatureService {
     if (!/^\/tmp\/sre-stage-[0-9a-f-]{36}$/.test(path)) return;
     await this.core.ssh.exec(hostId, `rm -rf -- ${q(path)}`);
   }
+  private async assertMonitorService(
+    s: MonitoringStack,
+    service: "grafana" | "prometheus" | "alertmanager",
+  ) {
+    const result = await this.core.ssh.exec(
+      s.hostId,
+      'docker ps --format \'{{.Label "com.docker.compose.project"}}\\t{{.Label "com.docker.compose.service"}}\\t{{.Ports}}\'',
+      { sudo: true, raw: true },
+    );
+    if (result.code !== 0)
+      throw new Error("无法核实监控实例，请确认 Docker 已启动且当前账号有权限");
+    const internal = { grafana: 3000, prometheus: 9090, alertmanager: 9093 }[
+      service
+    ];
+    const expected = `127.0.0.1:${monitoringPorts(s)[service]}->${internal}/tcp`;
+    const matches = result.stdout
+      .trim()
+      .split(/\r?\n/)
+      .some((line) => {
+        const [project, name, ports = ""] = line.split("\t");
+        return (
+          project === "sre-mon-" + s.id &&
+          name === service &&
+          ports.split(/,\s*/).includes(expected)
+        );
+      });
+    if (!matches)
+      throw new Error(
+        `${service} 端口 ${monitoringPorts(s)[service]} 未部署或不属于当前方案，请核对部署结果和端口配置；不会打开或操作其他实例`,
+      );
+  }
   private async monitorApi(
     s: MonitoringStack,
     port: number,
     path: string,
     body?: unknown,
   ) {
+    const service = port === 9090 ? "prometheus" : "alertmanager";
+    port = monitoringPorts(s)[service];
+    await this.assertMonitorService(s, service);
     const encoded =
       body === undefined
         ? undefined
@@ -808,15 +901,14 @@ export class FeatureService {
       .strict()
       .parse(params);
     const s = this.monitor(id);
+    await this.assertMonitorService(s, service);
     const key = id + ":" + service;
     const existing = this.tunnels.get(key);
     if (existing) {
       await this.options.openExternal(existing.url);
       return existing.url;
     }
-    const remotePort = { grafana: 3000, prometheus: 9090, alertmanager: 9093 }[
-      service
-    ];
+    const remotePort = monitoringPorts(s)[service];
     const client = await this.core.ssh.connect(s.hostId);
     const sockets = new Set<Socket>();
     const server = createServer((socket) => {

@@ -79,8 +79,16 @@ test("local delete controls persist and monitoring validates empty targets inlin
     await page.getByText("Rocky", { exact: true }).last().click();
     await page.getByPlaceholder("绑定及采集的内网 IP").fill("192.0.2.10");
     await page
-      .getByLabel("Grafana 管理员密码", { exact: true })
+      .getByLabel("Grafana 初始管理员密码", { exact: true })
       .fill("test-grafana-password");
+    await page
+      .getByLabel("Grafana 初始管理员用户名", { exact: true })
+      .fill("operator");
+    await page.getByText("高级设置：监控访问端口", { exact: true }).click();
+    await page.getByLabel("Grafana 端口", { exact: true }).fill("9090");
+    await page.getByRole("button", { name: "保存方案" }).click();
+    await expect(page.getByText("三个监控端口不能重复").first()).toBeVisible();
+    await page.getByLabel("Grafana 端口", { exact: true }).fill("13000");
     await page.getByRole("button", { name: "保存方案" }).click();
     await expect(page.getByRole("dialog")).toHaveCount(0);
     await expect(

@@ -414,3 +414,69 @@ input {
     grid-template-columns: repeat(2, 1fr);
   }
 }
+/* AI task execution */
+.agent-layout {
+  display: grid;
+  grid-template-columns: minmax(280px, 350px) minmax(0, 1fr);
+  gap: 20px;
+  align-items: start;
+}
+.agent-sidebar {
+  display: grid;
+  gap: 16px;
+}
+.agent-history {
+  max-height: 420px;
+  overflow: auto;
+}
+.agent-history-item {
+  display: block;
+  width: 100%;
+  text-align: left;
+  color: inherit;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 7px;
+  padding: 12px;
+  cursor: pointer;
+}
+.agent-history-item strong,
+.agent-history-item small {
+  display: block;
+  overflow-wrap: anywhere;
+}
+.agent-history-item small {
+  opacity: 0.65;
+  margin-top: 5px;
+}
+.agent-history-item.selected {
+  border-color: #087f8c;
+  background: #087f8c12;
+}
+.agent-target {
+  overflow-wrap: anywhere;
+  margin-bottom: 12px;
+}
+.agent-approval,
+.agent-steps,
+.agent-followup {
+  margin-top: 18px;
+}
+.agent-detail {
+  min-width: 0;
+}
+.agent-detail .output {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  max-height: 440px;
+  overflow: auto;
+}
+.agent-followup > button {
+  margin-top: 10px;
+}
+@media (max-width: 1150px) {
+  .agent-layout {
+    grid-template-columns: 300px minmax(0, 1fr);
+    gap: 12px;
+  }
+}

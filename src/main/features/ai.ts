@@ -2,6 +2,7 @@ import { randomUUID, createHash } from "node:crypto";
 import { z } from "zod";
 import type { AIProvider, AgentResult, AppEvent } from "../../shared/types";
 import type { Store } from "../core/store";
+import { AgentReplyError, parseAgentReply } from "./agent-contract";
 
 export function validateApiUrl(value: string) {
   const url = new URL(value);
@@ -208,9 +209,40 @@ export class AIService {
     }
     throw new Error(`不支持的 AI 操作：${method}`);
   }
+  async agentStep(
+    providerId: string,
+    requestId: string,
+    system: string,
+    context: string,
+    signal: AbortSignal,
+  ) {
+    const provider = this.getProvider(providerId);
+    if (provider.kind !== "model")
+      throw new Error(
+        "自主任务请选择模型 API；外部 HTTP Agent v1 仍使用脚本助手",
+      );
+    if (signal.aborted) throw new Error("任务已停止");
+    const cancel = () => this.requests.get(requestId)?.abort();
+    signal.addEventListener("abort", cancel, { once: true });
+    try {
+      return await this.send(provider, {
+        requestId,
+        instruction: "继续完成本次任务",
+        context,
+        agentSystem: system,
+      });
+    } finally {
+      signal.removeEventListener("abort", cancel);
+    }
+  }
   private async send(
     provider: AIProvider,
-    p: { requestId: string; instruction: string; context: string },
+    p: {
+      requestId: string;
+      instruction: string;
+      context: string;
+      agentSystem?: string;
+    },
     probe = false,
   ) {
     if (this.requests.has(p.requestId)) throw new Error("请求编号重复");
@@ -227,7 +259,7 @@ export class AIService {
         : JSON.stringify({ instruction: p.instruction, context: p.context });
       const system = probe
         ? "Reply briefly to verify this API connection."
-        : systemPrompt;
+        : (p.agentSystem ?? systemPrompt);
       const body =
         provider.kind === "agent"
           ? {
@@ -239,7 +271,7 @@ export class AIService {
           : protocol === "anthropic"
             ? {
                 model: provider.model,
-                max_tokens: probe ? 64 : 4096,
+                max_tokens: probe ? 64 : p.agentSystem ? 8192 : 4096,
                 stream: false,
                 system,
                 messages: [{ role: "user", content: userContent }],
@@ -247,6 +279,9 @@ export class AIService {
             : {
                 model: provider.model,
                 stream: false,
+                ...(p.agentSystem
+                  ? { response_format: { type: "json_object" } }
+                  : {}),
                 messages: [
                   {
                     role: "system",
@@ -329,9 +364,12 @@ export class AIService {
           throw new Error("API 未返回文本内容，请检查模型与协议");
         return;
       }
-      return parseAgentResult(content);
+      return p.agentSystem
+        ? parseAgentReply(content)
+        : parseAgentResult(content);
     } catch (e) {
       if (ctrl.signal.aborted) throw new Error("请求已取消或超时");
+      if (e instanceof AgentReplyError) throw e;
       if (e instanceof TypeError) {
         const code = (e.cause as { code?: unknown } | undefined)?.code;
         const safeCode =

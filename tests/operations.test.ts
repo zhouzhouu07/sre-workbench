@@ -86,6 +86,97 @@ const monitor = {
   webhook: "https://example.com/hook",
 };
 describe("operations safety", () => {
+  it("routes monitor APIs to custom ports and checks ownership before requests", async () => {
+    const { core, service } = await setup();
+    const saved = await service.handle("monitoring.save", {
+      ...monitor,
+      grafanaPort: 13000,
+      prometheusPort: 19090,
+      alertmanagerPort: 19093,
+    });
+    const requests: string[] = [];
+    core.ssh.exec = async (_host, command) => {
+      requests.push(command);
+      return {
+        code: 0,
+        stderr: "",
+        stdout: command.includes("docker ps")
+          ? `sre-mon-${saved.id}\tprometheus\t127.0.0.1:19090->9090/tcp\nsre-mon-${saved.id}\talertmanager\t127.0.0.1:19093->9093/tcp`
+          : "{}",
+      };
+    };
+    await service.handle("monitoring.status", { id: saved.id });
+    await service.handle("monitoring.test", { id: saved.id });
+    await service.handle("monitoring.silence", {
+      id: saved.id,
+      alertname: "Example",
+      minutes: 5,
+      comment: "test",
+    });
+    expect(
+      requests
+        .filter((c) => c.includes("curl"))
+        .every((c) => /127\.0\.0\.1:1909[03]/.test(c)),
+    ).toBe(true);
+    expect(requests.filter((c) => c.includes("curl"))).toHaveLength(5);
+    core.ssh.exec = async () => ({ code: 0, stderr: "", stdout: "" });
+    await expect(
+      service.handle("monitoring.test", { id: saved.id }),
+    ).rejects.toThrow("不属于当前方案");
+  });
+  it("blocks foreign Docker port ranges before exporter tasks are created", async () => {
+    const { core, service } = await setup();
+    const saved = await service.handle("monitoring.save", monitor);
+    core.ssh.exec = async () => ({
+      code: 0,
+      stderr: "",
+      stdout: "sre-mon-other\told-grafana\t127.0.0.1:2999-3001->2999-3001/tcp",
+    });
+    const preview = await service.handle("monitoring.preview", {
+      id: saved.id,
+    });
+    await expect(
+      service.handle("monitoring.run", { id: saved.id, token: preview.token }),
+    ).rejects.toThrow("另一工作台监控方案");
+    expect(core.store.list("tasks")).toHaveLength(0);
+  });
+  it("allows distinct monitoring ports and blocks opening another instance", async () => {
+    const { core, service } = await setup();
+    const saved = await service.handle("monitoring.save", monitor);
+    const other = await service.handle("monitoring.save", {
+      ...monitor,
+      name: "second",
+      grafanaUsername: "operator",
+      grafanaPort: 13000,
+      prometheusPort: 19090,
+      alertmanagerPort: 19093,
+    });
+    expect(other.grafanaUsername).toBe("operator");
+    core.ssh.exec = async () => ({
+      code: 0,
+      stdout: `sre-mon-${saved.id}\tgrafana\t127.0.0.1:13000->3000/tcp\n`,
+      stderr: "",
+    });
+    await expect(
+      service.handle("monitoring.open", { id: other.id, service: "grafana" }),
+    ).rejects.toThrow("不属于当前方案");
+  });
+  it("rejects duplicate monitoring ports and emits custom initial username", async () => {
+    const { service } = await setup();
+    await expect(
+      service.handle("monitoring.save", { ...monitor, grafanaPort: 9090 }),
+    ).rejects.toThrow("不能重复");
+    const saved = await service.handle("monitoring.save", {
+      ...monitor,
+      grafanaUsername: "operator",
+      grafanaPort: 13000,
+    });
+    const compose = parse(monitoringFiles(saved, "", "secret")["compose.yml"]);
+    expect(compose.services.grafana.ports).toEqual(["127.0.0.1:13000:3000"]);
+    expect(compose.services.grafana.environment.GF_SECURITY_ADMIN_USER).toBe(
+      "operator",
+    );
+  });
   it("encrypts deployment environment and preserves redacted edits", async () => {
     const { core, service } = await setup();
     const saved = await service.handle("deployment.save", deployment);
@@ -209,7 +300,7 @@ describe("operations safety", () => {
 it("returns failed read-only preflight reports and enforces a fresh check in task preparation", async () => {
   const { core, service } = await setup();
   const saved = await service.handle("deployment.save", deployment);
-  core.ssh.exec = async () => ({
+  core.ssh.exec = async (_host, command) => ({
     code: 1,
     stdout: "",
     stderr: "sudo: permission denied",
@@ -238,26 +329,53 @@ it("keeps numeric monitor metadata intact when a short secret matches digits", a
   const { core, service } = await setup();
   core.store.setSecret("1");
   const saved = await service.handle("monitoring.save", monitor);
-  core.ssh.exec = async () => ({
+  core.ssh.exec = async (_host, command) => ({
     code: 0,
     stderr: "",
-    stdout: JSON.stringify({
-      status: "success",
-      data: { count: 123, message: "value 1" },
-    }),
+    stdout: command.includes("docker ps")
+      ? `sre-mon-${saved.id}\tprometheus\t127.0.0.1:9090->9090/tcp\nsre-mon-${saved.id}\talertmanager\t127.0.0.1:9093->9093/tcp\n`
+      : JSON.stringify({
+          status: "success",
+          data: { count: 123, message: "value 1" },
+        }),
   });
   const result = await service.handle("monitoring.status", { id: saved.id });
   expect(result.targets.data.count).toBe(123);
   expect(result.targets.data.message).not.toContain("1");
 });
 
-it('preserves preflight identifiers and readiness while redacting detail strings', async () => {
+it("preserves preflight identifiers and readiness while redacting detail strings", async () => {
   const { core, service } = await setup();
-  core.store.setSecret('1');
-  const saved = await service.handle('deployment.save', { ...deployment, publicPort: 8181 });
-  const ids = ['privilege', 'platform', 'systemd', 'tools', 'disk-/var', 'disk-/opt', 'disk-/tmp', 'memory', 'runtime-conflicts', 'docker', 'dns', 'selinux', 'port-8181'];
-  core.ssh.exec = async () => ({ code: 0, stderr: '', stdout: ids.map(id => `SRE_CHECK\t${id}\tpass\tvalue 1`).join('\n') + '\nSRE_PREFLIGHT_DONE\n' });
-  const report = await service.handle('deployment.preflight', { id: saved.id });
+  core.store.setSecret("1");
+  const saved = await service.handle("deployment.save", {
+    ...deployment,
+    publicPort: 8181,
+  });
+  const ids = [
+    "privilege",
+    "platform",
+    "systemd",
+    "tools",
+    "disk-/var",
+    "disk-/opt",
+    "disk-/tmp",
+    "memory",
+    "runtime-conflicts",
+    "docker",
+    "dns",
+    "selinux",
+    "port-8181",
+  ];
+  core.ssh.exec = async () => ({
+    code: 0,
+    stderr: "",
+    stdout:
+      ids.map((id) => `SRE_CHECK\t${id}\tpass\tvalue 1`).join("\n") +
+      "\nSRE_PREFLIGHT_DONE\n",
+  });
+  const report = await service.handle("deployment.preflight", { id: saved.id });
   expect(report.ready).toBe(true);
-  expect(report.checks.find((check: any) => check.id === 'port-8181')?.detail).toBe('value [REDACTED]');
+  expect(
+    report.checks.find((check: any) => check.id === "port-8181")?.detail,
+  ).toBe("value [REDACTED]");
 });
