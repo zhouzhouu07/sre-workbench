@@ -4,6 +4,8 @@ export type AgentTarget =
   | { kind: "ssh"; root: string; hostId: string; sudo: boolean };
 export type AgentStatus =
   | "running"
+  | "pausing"
+  | "paused"
   | "awaiting_approval"
   | "awaiting_input"
   | "completed"
@@ -33,6 +35,7 @@ export interface AgentStep {
 }
 export interface AgentSession {
   id: string;
+  title?: string;
   providerId: string;
   permission: AgentPermission;
   target: AgentTarget;
@@ -53,6 +56,8 @@ export const permissionLabels: Record<AgentPermission, string> = {
 };
 export const agentStatusLabels: Record<AgentStatus, string> = {
   running: "执行中",
+  pausing: "正在暂停",
+  paused: "已暂停",
   awaiting_approval: "等待确认",
   awaiting_input: "等待补充",
   completed: "已结束",

@@ -346,7 +346,7 @@ export class AgentTools {
       timeout: (a.timeout as number | undefined) ?? 120,
     };
     const preview = this.core.tasks.preview(spec);
-    const task = this.core.tasks.run(preview.token, spec);
+    const task = this.core.tasks.run(preview.token, spec, { source: "ai" });
     onTask(task.id);
     let cancelSent = false;
     while (true) {
@@ -358,7 +358,7 @@ export class AgentTools {
       if (!current) throw new UncertainExecution("远端任务记录丢失，请核实");
       if (current.status === "unknown")
         throw new UncertainExecution(
-          `远端任务 ${task.id} 状态待核实，请在任务中心核实；未自动重试`,
+          `远端任务 ${task.id} 状态待核实，请在本会话执行记录中核实；未自动重试`,
         );
       if (["succeeded", "failed", "cancelled"].includes(current.status)) {
         if (cancelSent || current.status === "cancelled")

@@ -19,6 +19,7 @@ interface StoredTask extends Task {
   dependencyIds?: string[];
 }
 export interface TaskHooks {
+  source?: "ai";
   dependencyIds?: string[];
   prepare?: (task: Task) => Promise<void>;
   after?: (task: Task) => Promise<void>;
@@ -154,6 +155,7 @@ export class TaskManager {
     )
       throw new Error("该主机存在未知任务，请先核对结果");
     const task: StoredTask = {
+      source: hooks.source,
       id: randomUUID(),
       hostId: spec.hostId,
       title: spec.title,

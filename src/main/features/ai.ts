@@ -2,7 +2,12 @@ import { randomUUID, createHash } from "node:crypto";
 import { z } from "zod";
 import type { AIProvider, AgentResult, AppEvent } from "../../shared/types";
 import type { Store } from "../core/store";
-import { AgentReplyError, parseAgentReply } from "./agent-contract";
+import {
+  AgentReplyError,
+  parseAgentReply,
+  anthropicStepTool,
+  parseAnthropicStep,
+} from "./agent-contract";
 
 export function validateApiUrl(value: string) {
   const url = new URL(value);
@@ -273,7 +278,21 @@ export class AIService {
                 model: provider.model,
                 max_tokens: probe ? 64 : p.agentSystem ? 8192 : 4096,
                 stream: false,
-                system,
+                system: p.agentSystem
+                  ? system +
+                    "\n本次使用原生工具 submit_step：将步骤对象作为工具 input 提交，不在文本中输出 JSON；每轮仅调用一次 submit_step。"
+                  : system,
+                ...(p.agentSystem
+                  ? {
+                      thinking: { type: "disabled" },
+                      tools: [anthropicStepTool],
+                      tool_choice: {
+                        type: "tool",
+                        name: "submit_step",
+                        disable_parallel_tool_use: true,
+                      },
+                    }
+                  : {}),
                 messages: [{ role: "user", content: userContent }],
               }
             : {
@@ -345,6 +364,8 @@ export class AIService {
       } catch {
         throw new Error("API 返回的内容不是有效 JSON，请检查接口地址和协议");
       }
+      if (p.agentSystem && protocol === "anthropic")
+        return parseAnthropicStep(result?.content);
       const content =
         protocol === "agent"
           ? result

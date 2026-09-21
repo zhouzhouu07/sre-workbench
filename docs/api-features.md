@@ -39,3 +39,11 @@ Model reply is one strictly validated JSON tool call, question or finish. Tool r
 Tools return observations for subsequent turns. Persistent `aiSessions` records contain sanitized instructions, steps, outputs and remote task references; they are excluded from the general snapshot. Redaction is applied to string fields, not JSON serialization syntax. A call whose displayed arguments require redaction is rejected before execution. Interrupted sessions become unknown on startup; remote writes run through existing persistent TaskManager jobs. Model finish references are accepted only for real successful observation/command steps and are displayed as model-selected evidence, not independent acceptance certification.
 
 Windows local commands use non-interactive Windows PowerShell with hidden windows, timeout and output limits. Remote commands use Bash and the existing SSH/systemd job machinery. HTTP checks are GET requests to HTTP loopback URLs on the chosen target, do not follow redirects and require 2xx. Read-only SSH operations have bounded timeouts; cancelling the session prevents further calls but may wait for a current read to return. `AgentService.close()` is awaited before closing AI transport and backend persistence.
+
+## AI conversations (v0.2.1)
+
+- UI targets trusted SSH hosts only; local execution internals remain for legacy records/tests, with no local target selector.
+- ai.session.rename {id,title} changes a title (1–80 characters) without changing task instructions.
+- ai.session.pause {id} requests a boundary pause; in-flight work completes, pending approval is invalidated. ai.session.resume {id} continues a paused session with existing observations and unchanged target/provider/permission.
+- TaskHooks.source=ai persists provenance; the task center filters these records. Legacy linked tasks are marked on startup. AI steps retain live logs, reconciliation and cancellation controls.
+- Anthropic agent requests use a single native submit_step tool input, with thinking disabled and forced tool choice. Multiple calls are rejected; normal runtime argument and permission checks still apply.

@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   mkdtemp,
   mkdir,
@@ -47,6 +47,7 @@ async function fixture(
     turn: number,
     request: any,
   ) => unknown | Promise<unknown>,
+  protocol: "openai" | "anthropic" = "openai",
 ) {
   const root = await directory();
   let turn = 0;
@@ -59,9 +60,13 @@ async function fixture(
       const reply = await respond(JSON.parse(user.context), turn++, request);
       if (!res.destroyed)
         res.end(
-          JSON.stringify({
-            choices: [{ message: { content: JSON.stringify(reply) } }],
-          }),
+          JSON.stringify(
+            protocol === "anthropic"
+              ? reply
+              : {
+                  choices: [{ message: { content: JSON.stringify(reply) } }],
+                },
+          ),
         );
     } catch {
       res.writeHead(500).end();
@@ -86,7 +91,7 @@ async function fixture(
     id: "model",
     name: "test",
     kind: "model",
-    protocol: "openai",
+    protocol,
     baseUrl: `http://127.0.0.1:${(server.address() as AddressInfo).port}/v1`,
     model: "test",
     timeout: 10,
@@ -123,6 +128,25 @@ async function fixture(
 }
 
 describe("AI tool permission and path boundaries", () => {
+  it("explains concatenated tool replies without executing a batch", () => {
+    const reply = {
+      type: "tool",
+      summary: "检查",
+      call: { tool: "inspect_system", arguments: { kind: "overview" } },
+    };
+    expect(() =>
+      parseAgentReply(JSON.stringify(reply) + "\n\n" + JSON.stringify(reply)),
+    ).toThrow("每轮只能返回一个 JSON 对象");
+  });
+  it("reports the invalid tool argument rather than a generic envelope error", () => {
+    expect(() =>
+      parseAgentReply({
+        type: "tool",
+        summary: "检查",
+        call: { tool: "inspect_system", arguments: { kind: "environment" } },
+      }),
+    ).toThrow("arguments.kind");
+  });
   it.each(["write_file", "make_directory", "run_command"])(
     "denies %s in read-only mode",
     (tool) => {
@@ -209,6 +233,207 @@ describe("AI tool permission and path boundaries", () => {
 });
 
 describe("AI session execution with real local HTTP model and filesystem", () => {
+  it("preserves previous assistant replies when continuing a conversation", async () => {
+    const f = await fixture((_context, turn) => ({
+      type: "finish",
+      summary: `回复${turn + 1}`,
+      verification: [],
+    }));
+    const s = await f.start();
+    await f.until(s.id, (s) => s.status === "completed");
+    await f.agent.handle("ai.session.reply", {
+      id: s.id,
+      instruction: "再解释一下",
+    });
+    const done = await f.until(s.id, (s) => s.status === "completed");
+    expect(
+      done.steps.filter((s) => s.summary === "助手回复").map((s) => s.output),
+    ).toEqual([
+      expect.stringContaining("回复1"),
+      expect.stringContaining("回复2"),
+    ]);
+  });
+  it("does not resume a legacy local session while another local task is uncertain", async () => {
+    const f = await fixture(() => ({ type: "question", summary: "等待" }));
+    const s = await f.start();
+    await f.until(s.id, (s) => s.status === "awaiting_input");
+    await f.agent.handle("ai.session.pause", { id: s.id });
+    f.core.store.put("aiSessions", {
+      ...f.core.store.get<any>("aiSessions", s.id),
+      id: "uncertain",
+      status: "unknown",
+    });
+    await expect(
+      f.agent.handle("ai.session.resume", { id: s.id }),
+    ).rejects.toThrow("待核实");
+  });
+  it("finishes an in-flight tool before pausing and never replays it on resume", async () => {
+    let release!: () => void;
+    const gate = new Promise<void>((r) => {
+      release = r;
+    });
+    const f = await fixture((_context, turn) =>
+      turn === 0
+        ? { type: "tool", summary: "创建", call: writeCall() }
+        : { type: "finish", summary: "完成", verification: [] },
+    );
+    const execute = vi
+      .spyOn(AgentTools.prototype, "execute")
+      .mockImplementationOnce(async () => {
+        await gate;
+        await writeFile(join(f.workspace, "blog.py"), "once");
+        return { code: 0 };
+      });
+    try {
+      const s = await f.start();
+      await f.until(s.id, (s) => s.steps[0]?.status === "running");
+      await f.agent.handle("ai.session.pause", { id: s.id });
+      release();
+      const paused = await f.until(s.id, (s) => s.status === "paused");
+      expect(paused.steps[0].status).toBe("succeeded");
+      await f.agent.handle("ai.session.resume", { id: s.id });
+      await f.until(s.id, (s) => s.status === "completed");
+      expect(execute).toHaveBeenCalledTimes(1);
+      expect(await readFile(join(f.workspace, "blog.py"), "utf8")).toBe("once");
+    } finally {
+      release();
+      execute.mockRestore();
+    }
+  });
+  it("marks only linked legacy remote tasks as AI records", async () => {
+    const f = await fixture(() => ({
+      type: "finish",
+      summary: "完成",
+      verification: [],
+    }));
+    const s = await f.start();
+    await f.until(s.id, (s) => s.status === "completed");
+    for (const id of ["linked", "ordinary"])
+      f.core.store.put("tasks", {
+        id,
+        title: "task",
+        hostId: "host",
+        status: "succeeded",
+        logs: "",
+        createdAt: "",
+        updatedAt: "",
+      });
+    const saved = f.core.store.get<any>("aiSessions", s.id);
+    saved.steps = [
+      {
+        id: "step",
+        createdAt: "",
+        status: "succeeded",
+        summary: "工具",
+        taskId: "linked",
+      },
+    ];
+    f.core.store.put("aiSessions", saved);
+    const restarted = new AgentService(f.core, f.ai, () => {});
+    expect(f.core.store.get<any>("tasks", "linked").source).toBe("ai");
+    expect(f.core.store.get<any>("tasks", "ordinary").source).toBeUndefined();
+    await restarted.close();
+  });
+  it("pauses before the next tool and resumes with history without replay", async () => {
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const f = await fixture(async (_context, turn) => {
+      if (turn === 0) {
+        await gate;
+        return { type: "tool", summary: "创建", call: writeCall() };
+      }
+      return { type: "finish", summary: "已继续", verification: [] };
+    });
+    const s = await f.start();
+    await f.agent.handle("ai.session.rename", {
+      id: s.id,
+      title: "服务器环境检查",
+    });
+    await f.agent.handle("ai.session.pause", { id: s.id });
+    release();
+    const paused = await f.until(s.id, (s) => s.status === "paused");
+    expect(paused.title).toBe("服务器环境检查");
+    await expect(readFile(join(f.workspace, "blog.py"))).rejects.toThrow();
+    await f.agent.handle("ai.session.resume", { id: s.id });
+    const completed = await f.until(s.id, (s) => s.status === "completed");
+    expect(completed.title).toBe("服务器环境检查");
+  });
+  it("pauses pending approval without granting or replaying it", async () => {
+    const f = await fixture(() => ({
+      type: "tool",
+      summary: "创建",
+      call: writeCall(),
+    }));
+    const s = await f.start("confirm");
+    const pending = await f.until(
+      s.id,
+      (s) => s.status === "awaiting_approval",
+    );
+    await f.agent.handle("ai.session.pause", { id: s.id });
+    await f.until(s.id, (s) => s.status === "paused");
+    await expect(
+      f.agent.handle("ai.session.approve", {
+        id: s.id,
+        stepId: pending.steps[0].id,
+        approved: true,
+      }),
+    ).rejects.toThrow();
+    await expect(readFile(join(f.workspace, "blog.py"))).rejects.toThrow();
+  });
+  it("uses one native Anthropic step with runtime argument validation", async () => {
+    let request: any;
+    const f = await fixture((_context, _turn, body) => {
+      request = body;
+      return {
+        content: [
+          {
+            type: "tool_use",
+            name: "submit_step",
+            id: "t1",
+            input: { type: "finish", summary: "检查完成", verification: [] },
+          },
+        ],
+      };
+    }, "anthropic");
+    const reply = await f.ai.agentStep(
+      "model",
+      "native-test",
+      "system",
+      "{}",
+      new AbortController().signal,
+    );
+    expect(reply).toMatchObject({ type: "finish" });
+    expect(request.tool_choice).toMatchObject({
+      type: "tool",
+      name: "submit_step",
+    });
+    expect(request.tools[0].input_schema.properties.call.anyOf).toHaveLength(7);
+  });
+  it("rejects parallel native Anthropic calls without executing either", async () => {
+    const f = await fixture(
+      () => ({
+        content: [1, 2].map((n) => ({
+          type: "tool_use",
+          name: "submit_step",
+          id: String(n),
+          input: { type: "tool", summary: "写入", call: writeCall() },
+        })),
+      }),
+      "anthropic",
+    );
+    await expect(
+      f.ai.agentStep(
+        "model",
+        "parallel-test",
+        "system",
+        "{}",
+        new AbortController().signal,
+      ),
+    ).rejects.toThrow("一个 submit_step");
+    await expect(readFile(join(f.workspace, "blog.py"))).rejects.toThrow();
+  });
   it("requests JSON output for OpenAI compatible agent steps", async () => {
     let format: unknown;
     const f = await fixture((_context, _turn, request) => {
@@ -385,11 +610,9 @@ describe("AI session execution with real local HTTP model and filesystem", () =>
     });
     const task = await f.start();
     const done = await f.until(task.id, (s) => s.status === "completed");
-    expect(done.steps.map((step) => step.status)).toEqual([
-      "failed",
-      "succeeded",
-      "succeeded",
-    ]);
+    expect(
+      done.steps.filter((step) => step.call).map((step) => step.status),
+    ).toEqual(["failed", "succeeded", "succeeded"]);
     expect(
       await readFile(join(f.workspace, "templates/index.html"), "utf8"),
     ).toBe("<h1>Blog</h1>");

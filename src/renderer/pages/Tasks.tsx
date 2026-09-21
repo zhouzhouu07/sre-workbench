@@ -53,9 +53,9 @@ export default function Tasks({
       />
       <Table
         rowKey="id"
-        dataSource={[...data.tasks].sort((a, b) =>
-          b.createdAt.localeCompare(a.createdAt),
-        )}
+        dataSource={data.tasks
+          .filter((t) => t.source !== "ai")
+          .sort((a, b) => b.createdAt.localeCompare(a.createdAt))}
         columns={[
           {
             title: "任务",

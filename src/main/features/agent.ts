@@ -21,6 +21,8 @@ interface StoredSession extends AgentSession {
   identity: string;
 }
 interface ActiveRun {
+  session: StoredSession;
+  pauseRequested?: boolean;
   controller: AbortController;
   job?: Promise<void>;
   pending?: {
@@ -30,7 +32,7 @@ interface ActiveRun {
   };
 }
 const idSchema = z.object({ id: z.string().min(1).max(100) }).strict();
-const busyStatuses = ["running", "awaiting_approval"];
+const busyStatuses = ["running", "pausing", "awaiting_approval"];
 const now = () => new Date().toISOString();
 
 export class AgentService {
@@ -44,6 +46,12 @@ export class AgentService {
   ) {
     this.tools = new AgentTools(core);
     for (const s of core.store.list<StoredSession>("aiSessions")) {
+      for (const step of s.steps) {
+        if (!step.taskId) continue;
+        const task = core.store.get<any>("tasks", step.taskId);
+        if (task && task.source !== "ai")
+          core.store.put("tasks", { ...task, source: "ai" });
+      }
       if (busyStatuses.includes(s.status)) {
         s.status = "unknown";
         s.summary =
@@ -115,6 +123,58 @@ export class AgentService {
     }
     if (method === "ai.session.get")
       return this.public(this.get(idSchema.parse(params).id));
+    if (method === "ai.session.rename") {
+      const p = z
+        .object({ id: z.string(), title: z.string().trim().min(1).max(80) })
+        .strict()
+        .parse(params);
+      const s = this.active.get(p.id)?.session ?? this.get(p.id);
+      s.title = this.clean(p.title);
+      this.save(s);
+      return this.public(s);
+    }
+    if (method === "ai.session.pause") {
+      const { id } = idSchema.parse(params),
+        run = this.active.get(id);
+      const s = run?.session ?? this.get(id);
+      if (run) {
+        run.pauseRequested = true;
+        s.status = "pausing";
+        s.summary = "当前操作结束后暂停；不会启动下一项操作";
+        this.save(s);
+        run.pending?.resolve(false);
+        run.pending = undefined;
+      } else if (s.status === "awaiting_input") {
+        s.status = "paused";
+        s.summary = "已暂停，保留当前上下文";
+        this.save(s);
+      } else if (s.status !== "paused") throw new Error("当前会话不能暂停");
+      return this.public(s);
+    }
+    if (method === "ai.session.resume") {
+      const s = this.get(idSchema.parse(params).id);
+      if (
+        s.target.kind === "local" &&
+        this.core.store
+          .list<StoredSession>("aiSessions")
+          .some(
+            (other) =>
+              other.target.kind === "local" && other.status === "unknown",
+          )
+      )
+        throw new Error("存在待核实的本机任务，请先核实实际状态");
+      if (s.status !== "paused" || this.active.size)
+        throw new Error("请等待任务暂停完成，并结束其他运行中的会话");
+      if (this.identity(s) !== s.identity)
+        throw new Error("模型或主机配置已变化，请新建任务");
+      if (s.steps.length >= 200)
+        throw new Error("会话已达到 200 步上限，请新建任务");
+      s.status = "running";
+      s.summary = "从已有结果继续";
+      this.save(s);
+      this.launch(s);
+      return this.public(s);
+    }
     if (method === "ai.session.start") {
       const p = z
         .object({
@@ -144,6 +204,7 @@ export class AgentService {
         ...p,
         target,
         instruction: this.clean(p.instruction),
+        title: this.clean(p.instruction).slice(0, 80),
         id: randomUUID(),
         identity: this.identity(p),
         status: "running",
@@ -187,9 +248,13 @@ export class AgentService {
         .parse(params);
       const s = this.get(p.id);
       if (
-        !["awaiting_input", "completed", "failed", "cancelled"].includes(
-          s.status,
-        ) ||
+        ![
+          "paused",
+          "awaiting_input",
+          "completed",
+          "failed",
+          "cancelled",
+        ].includes(s.status) ||
         this.active.size
       )
         throw new Error("请等待当前任务结束；待核实任务不能自动继续");
@@ -205,8 +270,20 @@ export class AgentService {
         throw new Error("请先核实未知的本机任务");
       if (this.identity(s) !== s.identity)
         throw new Error("模型或主机配置已变化，请新建任务");
-      if (s.steps.length >= 200)
+      const preserveOldReply =
+        s.status === "completed" &&
+        s.summary &&
+        s.steps.at(-1)?.summary !== "助手回复";
+      if (s.steps.length + (preserveOldReply ? 1 : 0) >= 200)
         throw new Error("会话已达到 200 步上限，请新建任务");
+      if (preserveOldReply)
+        s.steps.push({
+          id: randomUUID(),
+          createdAt: s.updatedAt,
+          summary: "助手回复",
+          output: s.summary,
+          status: "succeeded",
+        });
       s.steps.push({
         id: randomUUID(),
         createdAt: now(),
@@ -228,7 +305,7 @@ export class AgentService {
         run.controller.abort();
         run.pending?.resolve(false);
         run.pending = undefined;
-      } else if (s.status === "awaiting_input") {
+      } else if (["awaiting_input", "paused"].includes(s.status)) {
         s.status = "cancelled";
         s.summary = "用户已停止任务";
         this.save(s);
@@ -243,7 +320,9 @@ export class AgentService {
         s.target.kind === "ssh" &&
         this.core.tasks.hasPendingWork([s.target.hostId])
       )
-        throw new Error("请先在任务中心核实该主机的远端任务");
+        throw new Error(
+          "请先在本会话执行记录核实远端操作；其他运维任务请到任务中心核实",
+        );
       s.status = "cancelled";
       s.summary += "\n用户已确认核实实际状态，结束本次任务。";
       this.save(s);
@@ -263,7 +342,7 @@ export class AgentService {
     throw new Error("不支持的 AI 会话操作");
   }
   private launch(session: StoredSession) {
-    const run: ActiveRun = { controller: new AbortController() };
+    const run: ActiveRun = { controller: new AbortController(), session };
     this.active.set(session.id, run);
     run.job = this.loop(session, run).finally(() => {
       this.active.delete(session.id);
@@ -273,9 +352,17 @@ export class AgentService {
   private async loop(s: StoredSession, run: ActiveRun) {
     const signal = run.controller.signal;
     let formatFailures = 0;
+    const pauseAtBoundary = () => {
+      if (!run.pauseRequested || signal.aborted) return false;
+      s.status = "paused";
+      s.summary = "已暂停，保留已完成操作；继续时从现有结果接着处理。";
+      this.save(s);
+      return true;
+    };
     try {
       for (let turn = 0; turn < s.maxSteps && s.steps.length < 200; turn++) {
         if (signal.aborted) throw new Error("任务已停止");
+        if (pauseAtBoundary()) return;
         if (this.identity(s) !== s.identity)
           throw new Error("模型或目标主机配置已变化，请新建任务");
         s.summary = "正在分析下一步";
@@ -347,6 +434,7 @@ export class AgentService {
           continue;
         }
         if (signal.aborted) throw new Error("任务已停止");
+        if (pauseAtBoundary()) return;
         if (!reply || !("type" in reply))
           throw new Error("模型返回了无效的任务步骤");
         if (reply.type === "finish") {
@@ -371,6 +459,13 @@ export class AgentService {
             (s.permission !== "advice" && !referenced.length
               ? "\n\n工作台记录：未提供可关联的成功验证步骤，请按未验证结果审阅。"
               : "");
+          s.steps.push({
+            id: randomUUID(),
+            createdAt: now(),
+            summary: "助手回复",
+            output: s.summary,
+            status: "succeeded",
+          });
           this.save(s);
           return;
         }
@@ -433,6 +528,13 @@ export class AgentService {
             clearTimeout(approvalTimer);
           }
           if (signal.aborted) throw new Error("任务已停止");
+          if (run.pauseRequested) {
+            step.status = "rejected";
+            step.output =
+              "用户暂停，本次待审批操作未执行；继续后需重新提出并审批。";
+            pauseAtBoundary();
+            return;
+          }
           s.status = "running";
           if (!approved) {
             step.status = "rejected";
@@ -489,6 +591,7 @@ export class AgentService {
             );
         }
       }
+      if (pauseAtBoundary()) return;
       s.status = "awaiting_input";
       s.summary = "已达到本轮步骤上限。请检查执行记录，补充指令后可继续。";
       this.save(s);

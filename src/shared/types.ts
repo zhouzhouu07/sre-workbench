@@ -24,6 +24,7 @@ export interface HostInput extends Omit<
 }
 export interface Task {
   id: string;
+  source?: "ai";
   hostId: string;
   title: string;
   status: TaskStatus;
