@@ -95,14 +95,24 @@ export default function App() {
       theme={{
         algorithm: dark ? theme.darkAlgorithm : theme.defaultAlgorithm,
         token: {
-          colorPrimary: "#087f8c",
-          borderRadius: 9,
+          colorPrimary: dark ? "#42c6c2" : "#087f8c",
+          colorText: dark ? "#dce6ef" : "#182b43",
+          colorTextSecondary: dark ? "#9aafc1" : "#617489",
+          colorBorderSecondary: dark ? "#2a3b4f" : "#e3eaf0",
+          colorBgContainer: dark ? "#162334" : "#ffffff",
+          controlHeight: 36,
+          borderRadius: 10,
           fontFamily: '"Segoe UI", "Microsoft YaHei", sans-serif',
-          colorBgLayout: dark ? "#101722" : "#f3f6f9",
+          colorBgLayout: dark ? "#0e1826" : "#f4f7fa",
         },
         components: {
+          Button: { primaryColor: dark ? "#0e1826" : "#ffffff" },
           Menu: {
-            itemHeight: 46,
+            itemHeight: 44,
+            darkItemBg: "#102338",
+            darkItemSelectedBg: "#194858",
+            darkItemSelectedColor: "#7ee1da",
+            darkItemColor: "#b6c6d6",
             itemSelectedBg: dark ? "#153c45" : "#e3f2f3",
             itemSelectedColor: dark ? "#63d5d0" : "#087f8c",
           },
@@ -110,11 +120,7 @@ export default function App() {
       }}
     >
       <Layout className={dark ? "app dark" : "app"}>
-        <Layout.Sider
-          width={224}
-          theme={dark ? "dark" : "light"}
-          className="sidebar"
-        >
+        <Layout.Sider width={224} theme="dark" className="sidebar">
           <div className="brand">
             <div className="brand-icon">S</div>
             <div>
@@ -126,9 +132,9 @@ export default function App() {
           <Menu
             mode="inline"
             selectedKeys={[page]}
-            items={items}
+            items={items.map((item) => ({ ...item, "aria-label": item.label }))}
             onClick={(e) => setPage(e.key)}
-            theme={dark ? "dark" : "light"}
+            theme="dark"
           />
           <div className="sidebar-foot">
             <span className="status-dot" /> 本地工作空间
@@ -161,7 +167,6 @@ export default function App() {
                   })
                 }
               />
-              <div className="avatar">OP</div>
             </Space>
           </Layout.Header>
           <Layout.Content className="content">
@@ -210,7 +215,6 @@ function Overview({
     <>
       <div className="page-title">
         <div>
-          <div className="eyebrow">INFRASTRUCTURE OVERVIEW</div>
           <Typography.Title level={2}>运维工作台</Typography.Title>
           <p>连接基础设施，让每一次变更都有迹可循。</p>
         </div>
@@ -249,7 +253,6 @@ function Overview({
       </div>
       <div className="overview-grid">
         <Card title="快速开始" className="quick-start">
-          <div className="section-caption">建立你的第一个运维闭环</div>
           {[
             ["hosts", "01", "连接 Linux 主机", "保存 SSH 连接并核实主机指纹"],
             [
@@ -280,8 +283,10 @@ function Overview({
           ))}
         </Card>
         <Card className="ai-promo">
-          <div className="ai-symbol">✦</div>
-          <Tag color="cyan">AI 辅助运维</Tag>
+          <div className="ai-symbol">
+            <ThunderboltOutlined />
+          </div>
+          <div className="ai-promo-label">AI 辅助运维</div>
           <Typography.Title level={3}>从需求到执行结果</Typography.Title>
           <p>
             选择只读、确认或自主执行权限，让 AI

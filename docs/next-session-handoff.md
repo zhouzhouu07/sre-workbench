@@ -4,6 +4,8 @@
 
 ## 最新交接状态（优先于下方早期计划）
 
+- 2026-09-21：已安装 frontend-app-builder / frontend-testing-debugging（用户 Codex 技能目录，来自 openai/plugins），完成平台统一视觉优化：深蓝导航、总览指标信息栏、青绿 AI 入口、对话和明暗主题、窄窗口布局。v0.2.2 正在打包验收，是否已发行以根目录项目进程最新记录为准；未修改远端系统与 AI 权限逻辑。
+
 - v0.2.1 已于 2026-09-21 [公开发布](https://github.com/zhouzhouu07/sre-workbench/releases/tag/v0.2.1)，源码标签对应 `e5b9a65`，安装包/校验文件上传成功。修复 DeepSeek Anthropic/deepseek-flash 多 JSON/DSML 响应，使用原生单个工具调用；真实环境检查 6 步完成。AI 改为服务器专用对话界面，支持命名、暂停/继续和持续聊天；AI 记录从任务中心隐藏，在会话内管理。129 项单元、6 项 Electron 及类型/构建通过，实际打包程序启动验收通过。详见 [会话修复验收](testing/2026-09-20-ai-chat-fixes.md)。
 
 - 2026-09-20 最新验收：AI 真实 DeepSeek 自主部署 Nginx + Flask 博客已完成，独立浏览器检查首页/两篇文章/样式正常；测试项目 `/opt/sre-ai-blog-97e37011`，端口 18085，保留运行。原有 14 个容器清单一致，18084 返回 200。
