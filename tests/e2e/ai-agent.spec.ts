@@ -73,6 +73,12 @@ test("server conversation can pause, resume and continue in the chat composer", 
       .getByRole("textbox", { name: "任务指令" })
       .fill("查看测试服务器环境");
     await page.getByRole("button", { name: "发送", exact: true }).click();
+    await expect(
+      page.getByText("Linux 环境巡检 · v1.0.1", { exact: true }),
+    ).toBeVisible();
+    await expect(
+      page.getByRole("combobox", { name: "SRE 技能" }),
+    ).toBeDisabled();
     await page.getByRole("button", { name: "暂停", exact: true }).click();
     release();
     await expect(

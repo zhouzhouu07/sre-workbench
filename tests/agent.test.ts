@@ -22,6 +22,7 @@ import {
   scopedPath,
 } from "../src/main/features/agent-tools";
 import {
+  toolSchemas,
   parseAgentReply,
   parseTool,
   toolDecision,
@@ -29,6 +30,124 @@ import {
 import type { AgentPermission, AgentSession } from "../src/shared/agent";
 
 const cleanups: Array<() => Promise<unknown>> = [];
+it.each([false, true])(
+  "uses locked typed checks but retains service verification after service actions (%s)",
+  async (serviceAction) => {
+    const plan = {
+      goal: "生成巡检报告",
+      steps: [
+        { id: "report", title: "生成并验证", status: "pending", evidence: [] },
+      ],
+      acceptance: ["JSON报告含ready"],
+      checks: [
+        {
+          tool: "verify_file",
+          arguments: {
+            path: "report.json",
+            format: "json",
+            expectText: "ready",
+          },
+        },
+      ],
+    };
+    const f = await fixture((context, turn) => {
+      if (turn === 0)
+        return {
+          type: "tool",
+          summary: "观测",
+          call: { tool: "host_resources", arguments: {} },
+        };
+      if (turn === 1)
+        return {
+          type: "tool",
+          summary: "计划",
+          call: { tool: "update_plan", arguments: plan },
+        };
+      if (turn === 2)
+        return {
+          type: "tool",
+          summary: "批处理",
+          call: serviceAction
+            ? {
+                tool: "service_action",
+                arguments: { unit: "test.service", action: "start" },
+              }
+            : {
+                tool: "run_command",
+                arguments: { command: "generate report" },
+              },
+        };
+      if (turn === 3)
+        return {
+          type: "tool",
+          summary: "降低验收",
+          call: {
+            tool: "update_plan",
+            arguments: {
+              ...plan,
+              checks: [
+                { tool: "verify_file", arguments: { path: "other.txt" } },
+              ],
+            },
+          },
+        };
+      if (turn === 4)
+        return { type: "tool", summary: "验收", call: plan.checks[0] };
+      return {
+        type: "finish",
+        summary: "报告已验证",
+        verification: [
+          context.steps.find((s: any) => s.call?.tool === "verify_file").id,
+        ],
+      };
+    });
+    f.core.store.put("hosts", {
+      id: "server",
+      name: "test",
+      address: "192.0.2.10",
+      port: 22,
+      username: "root",
+      fingerprint: "test",
+      credentialId: "",
+      authType: "password",
+      group: "",
+      tags: [],
+    });
+    const execute = vi
+      .spyOn(AgentTools.prototype, "execute")
+      .mockResolvedValue({ code: 0, stdout: "ok" });
+    try {
+      const s = (await f.agent.handle("ai.session.start", {
+        providerId: "model",
+        permission: "autonomous",
+        target: {
+          kind: "ssh",
+          root: "/opt/report",
+          hostId: "server",
+          sudo: false,
+        },
+        instruction:
+          "执行批处理生成JSON巡检报告，不需要HTTP服务，不得重启其他服务。",
+        maxSteps: 10,
+      })) as AgentSession;
+      const done = await f.until(s.id, (s) =>
+        ["completed", "failed", "awaiting_input"].includes(s.status),
+      );
+      expect(done.status).toBe(serviceAction ? "awaiting_input" : "completed");
+      expect(done.steps.find((s) => s.summary === "降低验收")?.status).toBe(
+        "rejected",
+      );
+      expect(done.plan?.checks?.[0].arguments.path).toBe("report.json");
+      expect(execute.mock.calls.map((c) => c[2].tool)).toEqual([
+        "host_resources",
+        serviceAction ? "service_action" : "run_command",
+        "verify_file",
+      ]);
+    } finally {
+      execute.mockRestore();
+    }
+  },
+);
 afterEach(async () => {
   for (const close of cleanups.splice(0).reverse()) await close();
 });
@@ -409,7 +528,9 @@ describe("AI session execution with real local HTTP model and filesystem", () =>
       type: "tool",
       name: "submit_step",
     });
-    expect(request.tools[0].input_schema.properties.call.anyOf).toHaveLength(7);
+    expect(request.tools[0].input_schema.properties.call.anyOf).toHaveLength(
+      Object.keys(toolSchemas).length,
+    );
   });
   it("rejects parallel native Anthropic calls without executing either", async () => {
     const f = await fixture(
@@ -698,4 +819,453 @@ describe.skipIf(process.platform !== "win32")("Windows local terminal", () => {
     setTimeout(() => controller.abort(), 100);
     await expect(pending).rejects.toThrow(/停止/);
   });
+});
+
+describe("SRE skill session integration", () => {
+  it("pins the runbook, isolates monitoring metadata and cites real diagnostic evidence", async () => {
+    let prompt = "",
+      modelContext: any;
+    const f = await fixture((context, turn, request) => {
+      prompt = request.messages[0].content;
+      modelContext = context;
+      if (turn === 0)
+        return {
+          type: "tool",
+          summary: "检查时钟",
+          call: { tool: "clock_status", arguments: {} },
+        };
+      return {
+        type: "finish",
+        summary: "已读取时钟状态，未修改主机",
+        verification: [context.steps[0].id, "fake"],
+      };
+    });
+    f.core.store.put("hosts", {
+      id: "server",
+      name: "test",
+      address: "192.0.2.10",
+      port: 22,
+      username: "root",
+      fingerprint: "test-only",
+      authType: "password",
+      credentialId: "",
+      group: "",
+      tags: [],
+    });
+    f.core.store.put("monitoring", {
+      id: "mon",
+      hostId: "server",
+      name: "test",
+      prometheusPort: 9092,
+      smtpPassword: "must-not-enter-context",
+    });
+    f.core.store.put("monitoring", {
+      id: "other",
+      hostId: "other",
+      name: "other",
+    });
+    const exec = vi.spyOn(f.core.ssh, "exec").mockResolvedValue({
+      code: 0,
+      stdout: "REMOTE_EPOCH=1789990000\nNTPSynchronized=no",
+      stderr: "",
+    });
+    const created = (await f.agent.handle("ai.session.start", {
+      providerId: "model",
+      permission: "readonly",
+      target: { kind: "ssh", hostId: "server", root: "/", sudo: false },
+      instruction: "Grafana 没有数据",
+      skillMode: "auto",
+      maxSteps: 4,
+    })) as AgentSession;
+    const done = await f.until(
+      created.id,
+      (s) => s.status === "completed" || s.status === "failed",
+    );
+    expect(done.status).toBe("completed");
+    expect(done.skills?.[0].id).toBe("monitoring-diagnosis");
+    expect(prompt).toContain("先 clock_status");
+    expect(modelContext.monitoringPlans).toEqual([
+      { id: "mon", name: "test", grafanaPort: 3000, prometheusPort: 9092 },
+    ]);
+    expect(JSON.stringify(modelContext)).not.toContain(
+      "must-not-enter-context",
+    );
+    expect(modelContext.diagnosticEvidence[0].id).toBe(done.steps[0].id);
+    expect(done.verification).toEqual([done.steps[0].id]);
+    expect(exec).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("Autonomous execution workflow", () => {
+  it("plans, executes without per-step approval, rejects premature finish and verifies", async () => {
+    const plan = {
+      goal: "部署博客",
+      steps: [
+        { id: "deploy", title: "部署并验证", status: "pending", evidence: [] },
+      ],
+      acceptance: ["HTTP页面包含博客标题"],
+    };
+    const f = await fixture((context, turn) => {
+      const step = (tool: string) =>
+        context.steps.find(
+          (s: any) => s.call?.tool === tool && s.status === "succeeded",
+        );
+      switch (turn) {
+        case 0:
+          return {
+            type: "tool",
+            summary: "提前变更",
+            call: {
+              tool: "run_command",
+              arguments: { command: "echo forbidden" },
+            },
+          };
+        case 1:
+          return {
+            type: "tool",
+            summary: "预检环境",
+            call: { tool: "host_resources", arguments: {} },
+          };
+        case 2:
+          return {
+            type: "tool",
+            summary: "保存计划",
+            call: { tool: "update_plan", arguments: plan },
+          };
+        case 3:
+          return {
+            type: "tool",
+            summary: "执行部署",
+            call: {
+              tool: "run_command",
+              arguments: { command: "echo deploy" },
+            },
+          };
+        case 4:
+          return {
+            type: "finish",
+            summary: "提前完成",
+            verification: [step("run_command").id],
+          };
+        case 5:
+          expect(context.steps.at(-1).output).toContain(step("run_command").id);
+          expect(context.steps.at(-1).output).toContain("即使命令只读");
+          expect(context.steps.at(-1).output).toContain("不要重复提交 finish");
+          return {
+            type: "tool",
+            summary: "业务验收",
+            call: {
+              tool: "verify_service",
+              arguments: { url: "http://127.0.0.1:18085", expectText: "博客" },
+            },
+          };
+        case 6:
+          return {
+            type: "tool",
+            summary: "更新进度",
+            call: {
+              tool: "update_plan",
+              arguments: {
+                ...plan,
+                steps: [
+                  {
+                    id: "deploy",
+                    title: "部署并验证",
+                    status: "completed",
+                    evidence: [step("verify_service").id],
+                  },
+                ],
+              },
+            },
+          };
+        default:
+          return {
+            type: "finish",
+            summary: "博客已验证",
+            verification: [step("verify_service").id],
+          };
+      }
+    });
+    f.core.store.put("hosts", {
+      id: "server",
+      name: "test",
+      address: "192.0.2.10",
+      port: 22,
+      username: "root",
+      fingerprint: "test",
+      credentialId: "",
+      authType: "password",
+      group: "",
+      tags: [],
+    });
+    const execute = vi
+      .spyOn(AgentTools.prototype, "execute")
+      .mockResolvedValue({ code: 0, stdout: "博客" });
+    try {
+      const session = (await f.agent.handle("ai.session.start", {
+        providerId: "model",
+        permission: "autonomous",
+        target: { kind: "ssh", root: "/", hostId: "server", sudo: false },
+        instruction: "部署博客",
+        maxSteps: 12,
+      })) as AgentSession;
+      const done = await f.until(session.id, (s) =>
+        ["completed", "failed", "awaiting_input"].includes(s.status),
+      );
+      expect(done.status).toBe("completed");
+      expect(done.steps[0].status).toBe("rejected");
+      expect(done.steps.some((s) => s.summary === "验收未通过")).toBe(true);
+      expect(done.plan?.steps[0].status).toBe("completed");
+      expect(execute.mock.calls.map((c) => c[2].tool)).toEqual([
+        "host_resources",
+        "run_command",
+        "verify_service",
+      ]);
+      expect(done.verification).toEqual([
+        done.steps.find((s) => s.call?.tool === "verify_service")!.id,
+      ]);
+    } finally {
+      execute.mockRestore();
+    }
+  });
+});
+
+it("keeps post-change verification pending across user replies and resets only completed work", async () => {
+  let turnNo = 0;
+  const f = await fixture((context, turn) => {
+    turnNo = turn;
+    const mutation = context.steps.find(
+      (s: any) => s.call?.tool === "run_command",
+    );
+    const check = context.steps.find(
+      (s: any) => s.call?.tool === "verify_service",
+    );
+    if (turn === 0)
+      return {
+        type: "tool",
+        summary: "预检",
+        call: { tool: "host_resources", arguments: {} },
+      };
+    if (turn === 1)
+      return {
+        type: "tool",
+        summary: "计划",
+        call: {
+          tool: "update_plan",
+          arguments: {
+            goal: "修复服务",
+            steps: [
+              {
+                id: "fix",
+                title: "修复并验收",
+                status: "pending",
+                evidence: [],
+              },
+            ],
+            acceptance: ["服务恢复"],
+          },
+        },
+      };
+    if (turn === 2)
+      return {
+        type: "tool",
+        summary: "修复",
+        call: { tool: "run_command", arguments: { command: "echo repair" } },
+      };
+    if (turn === 3) return { type: "question", summary: "请补充验收服务名" };
+    if (turn === 4)
+      return {
+        type: "finish",
+        summary: "无验证结束",
+        verification: [mutation.id],
+      };
+    if (turn === 5)
+      return {
+        type: "tool",
+        summary: "验收",
+        call: { tool: "verify_service", arguments: { unit: "nginx.service" } },
+      };
+    if (turn === 6)
+      return { type: "finish", summary: "已验证", verification: [check.id] };
+    return { type: "finish", summary: "下一项需求已接收", verification: [] };
+  });
+  f.core.store.put("hosts", {
+    id: "server",
+    name: "test",
+    address: "192.0.2.10",
+    port: 22,
+    username: "root",
+    fingerprint: "test",
+    credentialId: "",
+    authType: "password",
+    group: "",
+    tags: [],
+  });
+  const execute = vi
+    .spyOn(AgentTools.prototype, "execute")
+    .mockResolvedValue({ code: 0, stdout: "ok" });
+  try {
+    const session = (await f.agent.handle("ai.session.start", {
+      providerId: "model",
+      permission: "autonomous",
+      target: { kind: "ssh", root: "/", hostId: "server", sudo: false },
+      instruction: "修复应用服务",
+      maxSteps: 12,
+    })) as AgentSession;
+    await f.until(session.id, (s) => s.status === "awaiting_input");
+    await f.agent.handle("ai.session.reply", {
+      id: session.id,
+      instruction: "继续，nginx.service",
+    });
+    const done = await f.until(session.id, (s) => s.status === "completed");
+    expect(done.steps.some((s) => s.summary === "验收未通过")).toBe(true);
+    expect(turnNo).toBe(6);
+    expect(done.turnStart).toBe(0);
+    await f.agent.handle("ai.session.reply", {
+      id: session.id,
+      instruction: "总结说明",
+    });
+    const next = await f.until(session.id, (s) => s.status === "completed");
+    expect(next.activeInstruction).toBe("总结说明");
+    expect(next.plan).toBeUndefined();
+    expect(next.skills).toEqual([]);
+    expect(next.skillHistory?.[0].skills[0].id).toBe("incident-repair");
+  } finally {
+    execute.mockRestore();
+  }
+});
+
+it("restores a restarted SSH session from persisted task results without replaying its command", async () => {
+  const f = await fixture(() => ({
+    type: "finish",
+    summary: "ready",
+    verification: [],
+  }));
+  f.core.store.put("hosts", {
+    id: "recovery-host",
+    name: "test",
+    address: "192.0.2.10",
+    port: 22,
+    username: "root",
+    fingerprint: "test",
+    credentialId: "",
+    authType: "password",
+    group: "",
+    tags: [],
+  });
+  const started = (await f.agent.handle("ai.session.start", {
+    providerId: "model",
+    permission: "readonly",
+    target: { kind: "ssh", root: "/", hostId: "recovery-host", sudo: false },
+    instruction: "检查",
+    maxSteps: 10,
+  })) as AgentSession;
+  await f.until(started.id, (s) => s.status === "completed");
+  const saved = f.core.store.get<any>("aiSessions", started.id);
+  f.core.store.put("tasks", {
+    id: "persisted-job",
+    hostId: "recovery-host",
+    source: "ai",
+    status: "succeeded",
+    exitCode: 0,
+    logs: "executed once",
+  });
+  f.core.store.put("aiSessions", {
+    ...saved,
+    status: "running",
+    steps: [
+      {
+        id: "step",
+        status: "running",
+        summary: "执行",
+        call: { tool: "run_command", arguments: { command: "do-once" } },
+        taskId: "persisted-job",
+      },
+    ],
+  });
+  const restarted = new AgentService(f.core, f.ai, () => {}),
+    execute = vi.spyOn(AgentTools.prototype, "execute");
+  try {
+    const restored = (await restarted.handle("ai.session.reconcile", {
+      id: started.id,
+    })) as AgentSession;
+    expect(restored.status).toBe("paused");
+    expect(restored.steps[0].status).toBe("succeeded");
+    expect(restored.steps[0].output).toContain("executed once");
+    expect(execute).not.toHaveBeenCalled();
+    f.core.store.put("aiSessions", {
+      ...saved,
+      status: "unknown",
+      steps: [
+        {
+          id: "lost",
+          status: "running",
+          call: { tool: "run_command", arguments: { command: "unknown" } },
+        },
+      ],
+    });
+    expect(
+      (
+        (await restarted.handle("ai.session.reconcile", {
+          id: started.id,
+        })) as AgentSession
+      ).status,
+    ).toBe("unknown");
+  } finally {
+    execute.mockRestore();
+    await restarted.close();
+  }
+});
+
+it("waits through bounded remote status retries and never launches the command twice", async () => {
+  const f = await fixture(() => ({
+    type: "finish",
+    summary: "done",
+    verification: [],
+  }));
+  const preview = vi
+    .spyOn(f.core.tasks, "preview")
+    .mockReturnValue({ token: "preview" } as any);
+  const run = vi.spyOn(f.core.tasks, "run").mockImplementation(() => {
+    const t = {
+      id: "retry-job",
+      hostId: "host",
+      title: "test",
+      status: "unknown",
+      logs: "",
+      reconcileFailures: 1,
+      nextCheckAt: new Date(Date.now() + 2000).toISOString(),
+    };
+    f.core.store.put("tasks", t);
+    setTimeout(
+      () =>
+        f.core.store.put("tasks", {
+          ...t,
+          status: "succeeded",
+          exitCode: 0,
+          logs: "once",
+        }),
+      20,
+    );
+    return t as any;
+  });
+  try {
+    const result: any = await new AgentTools(f.core).execute(
+      { kind: "ssh", hostId: "host", root: "/", sudo: false },
+      "autonomous",
+      parseTool({
+        tool: "run_command",
+        arguments: { command: "echo once", timeout: 60 },
+      }),
+      false,
+      new AbortController().signal,
+      () => {},
+    );
+    expect(result.code).toBe(0);
+    expect(result.stdout).toBe("once");
+    expect(run).toHaveBeenCalledTimes(1);
+  } finally {
+    run.mockRestore();
+    preview.mockRestore();
+  }
 });

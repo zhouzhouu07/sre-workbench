@@ -26,10 +26,11 @@ import type { AgentPermission, AgentSession } from "../../shared/agent";
 import { agentStatusLabels, permissionLabels } from "../../shared/agent";
 import { call, reportError } from "../api";
 import AIScripts from "./AIScripts";
+import { sreSkills, type SreSkillMode } from "../../shared/sre-skills";
 
 const descriptions: Record<AgentPermission, string> = {
   advice: "只分析需求，不读取主机文件或执行工具。",
-  readonly: "读取文件、系统概况和 HTTP 检查；禁止写入和任意终端命令。",
+  readonly: "允许 SRE 只读诊断、日志和指标查询；禁止写入和任意终端命令。",
   confirm: "读取自动进行；每次写入和终端命令由你审阅后确认。",
   autonomous: "发送即授权 AI 连续执行任务范围内的操作，可暂停或停止。",
 };
@@ -69,6 +70,7 @@ function AgentWorkspace({
   const [root, setRoot] = useState("/");
   const [hostId, setHost] = useState("");
   const [sudo, setSudo] = useState(false);
+  const [skillMode, setSkillMode] = useState<SreSkillMode>("auto");
   const [maxSteps, setMaxSteps] = useState(40);
   const [message, setMessage] = useState("");
   const [busy, setBusy] = useState(false);
@@ -123,6 +125,7 @@ function AgentWorkspace({
     if (session && session.id === selected) {
       setProvider(session.providerId);
       setPermission(session.permission);
+      setSkillMode(session.skillMode ?? "none");
       setRoot(session.target.root);
       setMaxSteps(session.maxSteps);
       if (session.target.kind === "ssh") {
@@ -164,6 +167,7 @@ function AgentWorkspace({
           target: { kind: "ssh", root, hostId, sudo },
           instruction: message,
           maxSteps,
+          skillMode,
         });
         setSelected(created.id);
         setSession(created);
@@ -242,6 +246,22 @@ function AgentWorkspace({
                   请先在主机管理中添加服务器、检测连接并信任指纹。
                 </div>
               )}
+              <label>SRE 技能</label>
+              <Select
+                aria-label="SRE 技能"
+                value={skillMode}
+                disabled={!!selected}
+                onChange={setSkillMode}
+                style={{ width: "100%" }}
+                options={[
+                  { value: "auto", label: "自动匹配" },
+                  { value: "none", label: "通用任务" },
+                  ...sreSkills.map((s) => ({ value: s.id, label: s.name })),
+                ]}
+              />
+              <div className="muted">
+                新任务可自动匹配或指定技能；技能不会提升执行权限。
+              </div>
               <label>执行权限</label>
               <Select
                 aria-label="执行权限"
@@ -435,6 +455,79 @@ function AgentWorkspace({
               )}
             </Space>
           </header>
+          {!!session?.skills?.length && (
+            <div
+              style={{
+                padding: "10px 20px",
+                borderBottom: "1px solid var(--line)",
+              }}
+            >
+              <Space wrap>
+                {session.skills.map((skill) => (
+                  <Tag key={skill.id} color="cyan">
+                    {skill.name} · v{skill.version}
+                  </Tag>
+                ))}
+              </Space>
+              <div className="muted">
+                诊断结果附采集时间与主机；采集成功不代表服务健康。
+              </div>
+            </div>
+          )}
+          {session?.plan && (
+            <Collapse
+              size="small"
+              ghost
+              items={[
+                {
+                  key: "plan",
+                  label: `执行计划 · ${session.plan.steps.filter((s) => s.status === "completed").length}/${session.plan.steps.length}`,
+                  children: (
+                    <div style={{ maxHeight: 200, overflowY: "auto" }}>
+                      <strong>{session.plan.goal}</strong>
+                      {session.plan.steps.map((item) => (
+                        <div key={item.id} style={{ padding: "6px 0" }}>
+                          <Tag
+                            color={
+                              item.status === "completed"
+                                ? "green"
+                                : item.status === "blocked"
+                                  ? "orange"
+                                  : "default"
+                            }
+                          >
+                            {
+                              {
+                                pending: "待执行",
+                                running: "执行中",
+                                completed: "已执行",
+                                blocked: "受阻",
+                              }[item.status]
+                            }
+                          </Tag>
+                          <span>{item.title}</span>
+                        </div>
+                      ))}
+                      <div className="muted">
+                        验收：{session.plan.acceptance.join("；")}
+                      </div>
+                      {session.plan.checks?.map((check, index) => (
+                        <div
+                          key={index}
+                          className="muted"
+                          style={{ overflowWrap: "anywhere" }}
+                        >
+                          {check.tool === "verify_file"
+                            ? `文件验收：${check.arguments.path}；格式 ${check.arguments.format ?? "binary"}；至少 ${check.arguments.minBytes ?? 1} 字节${check.arguments.expectText ? `；包含「${check.arguments.expectText}」` : ""}${check.arguments.sha256 ? `；SHA256 ${check.arguments.sha256}` : ""}${check.arguments.mode ? `；权限 ${check.arguments.mode}` : ""}`
+                            : `安装包验收：${check.arguments.name}${check.arguments.version ? `；版本 ${check.arguments.version}` : "；已安装"}`}
+                        </div>
+                      ))}
+                    </div>
+                  ),
+                },
+              ]}
+            />
+          )}
           <div
             ref={transcript}
             className="agent-transcript"
@@ -512,10 +605,25 @@ function AgentWorkspace({
                                   }
                                 </Tag>
                                 <span>{step.summary}</span>
+                                <Typography.Text
+                                  type="secondary"
+                                  style={{ fontSize: 11 }}
+                                >
+                                  证据 {step.id.slice(0, 8)}
+                                </Typography.Text>
                               </Space>
                             ),
                             children: (
                               <>
+                                {step.startedAt && (
+                                  <Typography.Paragraph type="secondary">
+                                    开始：
+                                    {new Date(step.startedAt).toLocaleString()}
+                                    {step.finishedAt
+                                      ? ` · 结束：${new Date(step.finishedAt).toLocaleString()}`
+                                      : " · 等待执行结果"}
+                                  </Typography.Paragraph>
+                                )}
                                 {step.call && (
                                   <pre className="output">
                                     {JSON.stringify(step.call, null, 2)}
@@ -566,6 +674,16 @@ function AgentWorkspace({
                                         </Button>
                                       )}
                                     </Space>
+                                    <Typography.Paragraph type="secondary">
+                                      {task.step || "远端作业记录"} · 最近核实：
+                                      {task.lastCheckedAt
+                                        ? new Date(
+                                            task.lastCheckedAt,
+                                          ).toLocaleString()
+                                        : "尚未核实"}
+                                      {!!task.reconcileFailures &&
+                                        ` · 连续核实失败 ${task.reconcileFailures}/5${task.reconcileFailures >= 5 ? "，请手动重查" : "，正在退避重试"}`}
+                                    </Typography.Paragraph>
                                     <pre className="output">
                                       {task.logs || "等待远端日志…"}
                                     </pre>
@@ -629,21 +747,34 @@ function AgentWorkspace({
                   </div>
                 )}
                 {session.status === "unknown" && (
-                  <Button
-                    onClick={() =>
-                      Modal.confirm({
-                        title: "已核实实际状态？",
-                        content:
-                          "先展开本会话相关远端操作，核实并结束未知操作后再确认；不会自动重放。",
-                        onOk: () =>
-                          action(() =>
-                            call("ai.session.resolve", { id: selected }),
-                          ),
-                      })
-                    }
-                  >
-                    我已核实实际状态
-                  </Button>
+                  <Space wrap>
+                    <Button
+                      type="primary"
+                      loading={busy}
+                      onClick={() =>
+                        action(() =>
+                          call("ai.session.reconcile", { id: selected }),
+                        )
+                      }
+                    >
+                      核实并恢复会话
+                    </Button>
+                    <Button
+                      onClick={() =>
+                        Modal.confirm({
+                          title: "已核实实际状态？",
+                          content:
+                            "先展开本会话相关远端操作，核实并结束未知操作后再确认；不会自动重放。",
+                          onOk: () =>
+                            action(() =>
+                              call("ai.session.resolve", { id: selected }),
+                            ),
+                        })
+                      }
+                    >
+                      人工核实后结束
+                    </Button>
+                  </Space>
                 )}
               </>
             )}

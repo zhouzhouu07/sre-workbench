@@ -34,6 +34,9 @@ export interface Task {
   exitCode?: number;
   unit?: string;
   step?: string;
+  lastCheckedAt?: string;
+  nextCheckAt?: string;
+  reconcileFailures?: number;
 }
 export interface ScriptVersion {
   id: string;

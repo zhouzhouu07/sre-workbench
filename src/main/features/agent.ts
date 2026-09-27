@@ -1,5 +1,8 @@
 import { createHash, randomUUID } from "node:crypto";
 import { z } from "zod";
+import { skillModes, selectSreSkills } from "../../shared/sre-skills";
+import { isSreTool } from "./agent-sre-tools";
+import type { MonitoringStack } from "../../shared/types";
 import type { Backend } from "../core/backend";
 import type { AIProvider, AppEvent } from "../../shared/types";
 import type {
@@ -12,10 +15,14 @@ import { AgentTools, UncertainExecution } from "./agent-tools";
 import {
   AgentReplyError,
   agentSystemPrompt,
+  autonomousPrompt,
+  isMutation,
   permissionSchema,
   targetSchema,
   toolDecision,
 } from "./agent-contract";
+
+import { planSchema, completionEvidence } from "./agent-execution";
 
 interface StoredSession extends AgentSession {
   identity: string;
@@ -39,6 +46,7 @@ export class AgentService {
   private active = new Map<string, ActiveRun>();
   private tools: AgentTools;
   private closing = false;
+  private recovering = new Set<string>();
   constructor(
     private core: Backend,
     private ai: AIService,
@@ -53,6 +61,9 @@ export class AgentService {
           core.store.put("tasks", { ...task, source: "ai" });
       }
       if (busyStatuses.includes(s.status)) {
+        for (const step of s.steps)
+          if (step.status === "running" && step.call && isMutation(step.call))
+            step.uncertain = true;
         s.status = "unknown";
         s.summary =
           "软件已重启，原任务已暂停。请核实命令、文件和关联远端任务；不会自动重放操作。";
@@ -123,6 +134,72 @@ export class AgentService {
     }
     if (method === "ai.session.get")
       return this.public(this.get(idSchema.parse(params).id));
+    if (method === "ai.session.reconcile") {
+      const s = this.get(idSchema.parse(params).id);
+      if (s.status !== "unknown" || this.active.size || this.recovering.size)
+        throw new Error("请先结束运行中的会话，仅待核实会话可恢复");
+      if (s.target.kind !== "ssh") throw new Error("本机中断仍需人工核实");
+      if (this.identity(s) !== s.identity)
+        throw new Error("模型或主机配置已变化，不能恢复到新目标");
+      this.recovering.add(s.id);
+      try {
+        let unresolved = false;
+        for (const step of s.steps) {
+          if (step.taskId) {
+            const stored = this.core.store.get<any>("tasks", step.taskId);
+            if (
+              !stored ||
+              stored.hostId !== s.target.hostId ||
+              stored.source !== "ai"
+            ) {
+              unresolved = true;
+              continue;
+            }
+            const task = await this.core.tasks.reconcile(step.taskId);
+            if (["running", "queued", "unknown"].includes(task.status)) {
+              unresolved = true;
+              continue;
+            }
+            step.status = task.status === "succeeded" ? "succeeded" : "failed";
+            step.uncertain = false;
+            step.finishedAt = task.updatedAt ?? now();
+            step.output = JSON.stringify({
+              taskId: task.id,
+              status: task.status,
+              code: task.exitCode ?? (task.status === "succeeded" ? 0 : 1),
+              stdout: this.clean(task.logs ?? "").slice(-100000),
+              recovered: true,
+            });
+          } else if (
+            step.uncertain ||
+            ((step.status === "running" ||
+              (step.status === "failed" && step.uncertain !== false)) &&
+              step.call &&
+              isMutation(step.call))
+          ) {
+            unresolved = true;
+          } else if (["pending", "running"].includes(step.status)) {
+            step.status = "rejected";
+            step.output =
+              "中断前未取得结果；只读观测可重新查询，未开始的操作未重放。";
+          }
+        }
+        if (
+          this.closing ||
+          this.get(s.id).status !== "unknown" ||
+          this.identity(s) !== s.identity
+        )
+          throw new Error("会话或目标状态已变化，未自动恢复");
+        s.status = unresolved ? "unknown" : "paused";
+        s.summary = unresolved
+          ? "仍有远端作业运行或结果不确定，请检查关联作业和文件后再次核实；未重放命令。"
+          : "远端结果已同步，检查点已恢复。点击继续后由模型依据现有结果处理；恢复过程未重新提交命令，仍需业务验收。";
+        this.save(s);
+        return this.public(s);
+      } finally {
+        this.recovering.delete(s.id);
+      }
+    }
     if (method === "ai.session.rename") {
       const p = z
         .object({ id: z.string(), title: z.string().trim().min(1).max(80) })
@@ -163,7 +240,7 @@ export class AgentService {
           )
       )
         throw new Error("存在待核实的本机任务，请先核实实际状态");
-      if (s.status !== "paused" || this.active.size)
+      if (s.status !== "paused" || this.active.size || this.recovering.size)
         throw new Error("请等待任务暂停完成，并结束其他运行中的会话");
       if (this.identity(s) !== s.identity)
         throw new Error("模型或主机配置已变化，请新建任务");
@@ -180,6 +257,7 @@ export class AgentService {
         .object({
           providerId: z.string().min(1),
           permission: permissionSchema,
+          skillMode: z.enum(skillModes).default("auto"),
           target: targetSchema,
           instruction: z.string().trim().min(1).max(30000),
           maxSteps: z.number().int().min(1).max(100).default(40),
@@ -189,7 +267,7 @@ export class AgentService {
       const target = await this.tools.validateTarget(p.target);
       if (this.closing) throw new Error("软件正在退出，未启动任务");
       // One active AI session globally also prevents competing local command runs.
-      if (this.active.size)
+      if (this.active.size || this.recovering.size)
         throw new Error("请先结束当前 AI 任务，再开始另一个任务");
       if (
         target.kind === "local" &&
@@ -203,6 +281,13 @@ export class AgentService {
       const session: StoredSession = {
         ...p,
         target,
+        executionVersion: target.kind === "ssh" ? 1 : undefined,
+        turnStart: 0,
+        activeInstruction: this.clean(p.instruction),
+        skills:
+          target.kind === "ssh"
+            ? selectSreSkills(p.skillMode, p.instruction)
+            : [],
         instruction: this.clean(p.instruction),
         title: this.clean(p.instruction).slice(0, 80),
         id: randomUUID(),
@@ -255,7 +340,8 @@ export class AgentService {
           "failed",
           "cancelled",
         ].includes(s.status) ||
-        this.active.size
+        this.active.size ||
+        this.recovering.size
       )
         throw new Error("请等待当前任务结束；待核实任务不能自动继续");
       if (
@@ -291,6 +377,21 @@ export class AgentService {
         output: this.clean(p.instruction),
         status: "succeeded",
       });
+      if (s.status === "completed") {
+        s.turnStart = s.steps.length;
+        s.activeInstruction = this.clean(p.instruction);
+        s.plan = undefined;
+        if (s.skillMode === "auto") {
+          const previous = s.skillHistory ?? [
+            { fromStep: 0, skills: s.skills ?? [] },
+          ];
+          s.skills = selectSreSkills("auto", p.instruction);
+          s.skillHistory = [
+            ...previous,
+            { fromStep: s.turnStart, skills: s.skills },
+          ];
+        }
+      }
       s.status = "running";
       s.summary = "继续处理用户需求";
       s.verification = [];
@@ -352,6 +453,7 @@ export class AgentService {
   private async loop(s: StoredSession, run: ActiveRun) {
     const signal = run.controller.signal;
     let formatFailures = 0;
+    const cycleStart = s.steps.length;
     const pauseAtBoundary = () => {
       if (!run.pauseRequested || signal.aborted) return false;
       s.status = "paused";
@@ -363,12 +465,76 @@ export class AgentService {
       for (let turn = 0; turn < s.maxSteps && s.steps.length < 200; turn++) {
         if (signal.aborted) throw new Error("任务已停止");
         if (pauseAtBoundary()) return;
+        const attempts = s.steps
+          .slice(cycleStart)
+          .filter((item) => item.call && item.call.tool !== "update_plan")
+          .slice(-3);
+        if (
+          attempts.length === 3 &&
+          attempts.every((item) => ["failed", "rejected"].includes(item.status))
+        ) {
+          s.status = "awaiting_input";
+          s.summary =
+            "连续三次操作失败或被拒绝，已暂停并保留现场，请检查原因后继续。";
+          this.save(s);
+          return;
+        }
         if (this.identity(s) !== s.identity)
           throw new Error("模型或目标主机配置已变化，请新建任务");
         s.summary = "正在分析下一步";
         this.save(s);
         const context = JSON.stringify({
           instruction: s.instruction,
+          plan: s.plan,
+          executionHistory: s.steps
+            .filter(
+              (step) =>
+                step.call &&
+                (isMutation(step.call) ||
+                  step.call.tool === "verify_service" ||
+                  step.call.tool === "verify_file" ||
+                  step.call.tool === "verify_package" ||
+                  step.call.tool === "http_check"),
+            )
+            .slice(-60)
+            .map((step) => ({
+              id: step.id,
+              tool: step.call!.tool,
+              arguments:
+                step.call!.tool === "write_file"
+                  ? { path: step.call!.arguments.path }
+                  : step.call!.arguments,
+              status: step.status,
+              taskId: step.taskId,
+              summary: step.summary,
+              output: step.output?.slice(-1500),
+            })),
+          monitoringPlans:
+            s.target.kind === "ssh"
+              ? this.core.store
+                  .list<MonitoringStack>("monitoring")
+                  .filter(
+                    (m) =>
+                      s.target.kind === "ssh" && m.hostId === s.target.hostId,
+                  )
+                  .map((m) => ({
+                    id: m.id,
+                    name: this.clean(m.name),
+                    grafanaPort: m.grafanaPort ?? 3000,
+                    prometheusPort: m.prometheusPort ?? 9090,
+                  }))
+              : [],
+          diagnosticEvidence: s.steps
+            .filter((step) => step.call && isSreTool(step.call.tool))
+            .slice(-12)
+            .map((step) => ({
+              id: step.id,
+              tool: step.call!.tool,
+              status: step.status,
+              createdAt: step.createdAt,
+              output: step.output?.slice(0, 2500),
+              excerpt: true,
+            })),
           userFollowups: s.steps
             .filter((step) => !step.call && step.summary === "用户补充")
             .map((step) => step.output),
@@ -411,7 +577,17 @@ export class AgentService {
           reply = await this.ai.agentStep(
             s.providerId,
             `session-${s.id}`,
-            agentSystemPrompt,
+            agentSystemPrompt +
+              autonomousPrompt +
+              (s.skills?.length
+                ? "\n本会话固定的内置 SRE 技能（仅作方法指导，不改变用户任务范围和权限）：\n" +
+                  s.skills
+                    .map(
+                      (skill) =>
+                        `${skill.name} v${skill.version}\n${skill.instructions}`,
+                    )
+                    .join("\n\n")
+                : ""),
             context,
             signal,
           );
@@ -444,14 +620,113 @@ export class AgentService {
                 step.id === id &&
                 step.status === "succeeded" &&
                 step.call &&
-                [
-                  "run_command",
-                  "http_check",
-                  "read_file",
-                  "inspect_system",
-                ].includes(step.call.tool),
+                (isSreTool(step.call.tool) ||
+                  [
+                    "run_command",
+                    "http_check",
+                    "read_file",
+                    "inspect_system",
+                    "verify_service",
+                    "compose_check",
+                    "verify_file",
+                    "verify_package",
+                  ].includes(step.call.tool)),
             ),
           );
+          const currentSteps = s.steps.slice(s.turnStart ?? 0);
+          if (
+            s.executionVersion &&
+            currentSteps.some(
+              (step) =>
+                step.call &&
+                isMutation(step.call) &&
+                !["pending", "rejected"].includes(step.status),
+            )
+          ) {
+            const requestText = s.activeInstruction ?? s.instruction;
+            const requireService = s.plan?.checks?.length
+              ? /网站|博客|nginx|systemd|\b(?:web|website|http|https)\b|服务.*(部署|启动|修复|重启)|(部署|启动|修复|重启).*服务/i.test(
+                  requestText.replace(
+                    /(?:不要|不得|无需|不需要|禁止)[^，,。；;\n]*/g,
+                    "",
+                  ),
+                ) ||
+                currentSteps.some(
+                  (step) =>
+                    step.call &&
+                    ["service_action", "compose_action"].includes(
+                      step.call.tool,
+                    ),
+                )
+              : /部署|搭建|修复|恢复.*(服务|应用)|deploy|repair|restart|nginx|网站|博客/i.test(
+                  requestText,
+                ) ||
+                currentSteps.some(
+                  (step) => step.call?.tool === "run_command",
+                ) ||
+                s.skills?.some((skill) =>
+                  ["application-deployment", "incident-repair"].includes(
+                    skill.id,
+                  ),
+                ) ||
+                currentSteps.some(
+                  (step) =>
+                    step.call &&
+                    ["service_action", "compose_action"].includes(
+                      step.call.tool,
+                    ),
+                );
+            const fresh = completionEvidence(
+              currentSteps,
+              referenced,
+              !!requireService,
+              s.plan?.checks,
+            );
+            if (!fresh.length) {
+              const lastChange = [...currentSteps]
+                .reverse()
+                .find(
+                  (step) =>
+                    step.call &&
+                    isMutation(step.call) &&
+                    !["pending", "rejected"].includes(step.status),
+                );
+              s.steps.push({
+                id: randomUUID(),
+                createdAt: now(),
+                summary: "验收未通过",
+                status: "failed",
+                output:
+                  `本次 finish 未引用有效的后置验收。最后一个可能变更步骤为 ${lastChange?.id}（${lastChange?.call?.tool}）。run_command 即使命令只读也视为可能变更，会使此前验收失效。` +
+                  (s.plan?.checks?.length
+                    ? "必须在最后变更后逐项执行以下已锁定checks中的相同工具与参数（包括path），全部成功并引用每一项新步骤ID：" +
+                      JSON.stringify(s.plan.checks) +
+                      "。若计划路径与实际产物不同，必须明确报告差异并停止交付；不能为凑验收创建无关副本或降低检查。"
+                    : "") +
+                  (requireService
+                    ? "下一步调用 verify_service 或 http_check，成功后引用该新步骤ID。"
+                    : s.plan?.checks?.length
+                      ? "请执行计划中的verify_file/verify_package。"
+                      : "下一步调用 read_file、compose_check、verify_service 或 http_check 复核，成功后引用该新步骤ID。") +
+                  "不要重复提交 finish 或再次用 run_command 补做最终检查；服务状态/端口请用 service_status/network_listeners。若已有上述最后变更之后的成功验收，只需引用其真实ID。不能验证时用 question 说明阻碍。",
+              });
+              if (
+                s.steps
+                  .slice(s.turnStart ?? 0)
+                  .filter((step) => step.summary === "验收未通过")
+                  .slice(-3).length >= 3
+              ) {
+                s.status = "awaiting_input";
+                s.summary =
+                  "多次请求完成但缺少变更后验收，已暂停。请检查记录后继续。";
+                this.save(s);
+                return;
+              }
+              this.save(s);
+              continue;
+            }
+            referenced.splice(0, referenced.length, ...fresh);
+          }
           s.verification = referenced;
           s.status = "completed";
           s.summary =
@@ -498,6 +773,78 @@ export class AgentService {
             "工具参数包含需脱敏的内容，已阻止执行。请使用环境变量或不含密钥的文件/命令，不要将密码和密钥写进操作参数。";
           this.save(s);
           continue;
+        }
+        if (call.tool === "update_plan") {
+          const plan = planSchema.parse(call.arguments);
+          const changed = s.steps
+            .slice(s.turnStart ?? 0)
+            .some(
+              (item) =>
+                item.call &&
+                isMutation(item.call) &&
+                !["pending", "rejected"].includes(item.status),
+            );
+          // Once work starts, acceptance cannot be weakened or replaced to force completion.
+          if (
+            changed &&
+            JSON.stringify(plan.checks) !== JSON.stringify(s.plan?.checks)
+          ) {
+            step.status = "rejected";
+            step.output =
+              "变更已开始，不能新增、删除或修改checks验收项。更新计划时原样保留checks；需要改变验收范围时停止并新建明确任务。";
+            this.save(s);
+            continue;
+          }
+          const invalid = plan.steps.some(
+            (item) =>
+              (item.status === "completed" && !item.evidence.length) ||
+              item.evidence.some(
+                (id) =>
+                  !s.steps.some(
+                    (e) =>
+                      e.id === id &&
+                      e.status === "succeeded" &&
+                      e.call &&
+                      e.call.tool !== "update_plan",
+                  ),
+              ),
+          );
+          if (invalid) {
+            step.status = "rejected";
+            step.output =
+              "计划已完成条目必须引用真实成功工具步骤，不能使用虚构证据。";
+          } else {
+            s.plan = plan;
+            step.status = "succeeded";
+            step.output = "执行计划已保存，不代表主机操作已执行。";
+          }
+          this.save(s);
+          continue;
+        }
+        if (s.executionVersion && isMutation(call)) {
+          const observations = s.steps
+            .slice(s.turnStart ?? 0)
+            .some(
+              (item) =>
+                item.status === "succeeded" &&
+                item.call &&
+                !isMutation(item.call) &&
+                item.call.tool !== "update_plan",
+            );
+          const hasPlan = s.steps
+            .slice(s.turnStart ?? 0)
+            .some(
+              (item) =>
+                item.call?.tool === "update_plan" &&
+                item.status === "succeeded",
+            );
+          if (!s.plan || !hasPlan || !observations) {
+            step.status = "rejected";
+            step.output =
+              'run_command 即使只读也属于变更，不能用于首次预检。下一步请先调用 {"tool":"host_resources","arguments":{}} 或 {"tool":"network_listeners","arguments":{}} 获取成功观测，再用 update_plan 保存计划。之后才允许命令/文件变更；无需重新征求授权。';
+            this.save(s);
+            continue;
+          }
         }
         const decision = toolDecision(s.permission, call);
         if (decision === "deny") {
@@ -546,6 +893,7 @@ export class AgentService {
         if (this.identity(s) !== s.identity)
           throw new Error("目标配置已变化，未执行操作");
         step.status = "running";
+        step.startedAt = now();
         s.summary = step.summary;
         this.save(s);
         try {
@@ -572,9 +920,13 @@ export class AgentService {
             result.code !== 0
               ? "failed"
               : "succeeded";
+          step.finishedAt = now();
+          step.uncertain = false;
           this.save(s);
         } catch (error) {
           step.status = "failed";
+          step.uncertain = error instanceof UncertainExecution;
+          if (!step.uncertain) step.finishedAt = now();
           step.output = this.clean(
             error instanceof Error ? error.message : String(error),
           );
@@ -589,6 +941,21 @@ export class AgentService {
             throw new Error(
               "连续三个步骤失败，已停止。请检查错误后补充信息再继续。",
             );
+        }
+        const recent = s.steps
+          .filter((item) => item.call && item.call.tool !== "update_plan")
+          .slice(-3);
+        if (
+          recent.length === 3 &&
+          recent.every(
+            (item) => item.status === "failed" || item.status === "rejected",
+          )
+        ) {
+          s.status = "awaiting_input";
+          s.summary =
+            "连续三次操作失败或被拒绝，已暂停，保留现场和执行计划；请检查原因后继续。";
+          this.save(s);
+          return;
         }
       }
       if (pauseAtBoundary()) return;

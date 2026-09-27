@@ -17,6 +17,7 @@ interface StoredTask extends Task {
   system?: boolean;
   submitted?: boolean;
   dependencyIds?: string[];
+  hostIdentity?: string;
 }
 export interface TaskHooks {
   source?: "ai";
@@ -48,6 +49,8 @@ export class TaskManager {
   private stopped = false;
   private jobs = new Set<Promise<unknown>>();
   private busy = new Map<string, number>();
+  private checking = new Map<string, Promise<Task>>();
+  private monitors = new Set<string>();
   constructor(
     private store: Store,
     private ssh: SSHManager,
@@ -114,12 +117,26 @@ export class TaskManager {
     return true;
   }
   private async monitor(id: string): Promise<void> {
-    while (!this.stopped) {
-      const task = this.get(id);
-      if (!["running", "unknown"].includes(task.status)) return;
-      await new Promise((r) => setTimeout(r, 1000));
-      if (this.stopped) return;
-      if (this.get(id).status === "running") await this.reconcile(id);
+    if (this.monitors.has(id)) return;
+    this.monitors.add(id);
+    try {
+      while (!this.stopped) {
+        const task = this.get(id);
+        if (!["running", "unknown"].includes(task.status)) return;
+        await new Promise((r) => setTimeout(r, 1000));
+        if (this.stopped) return;
+        const current = this.get(id);
+        if (
+          current.status === "unknown" &&
+          (current.reconcileFailures ?? 0) >= 5
+        )
+          return;
+        if (current.nextCheckAt && Date.parse(current.nextCheckAt) > Date.now())
+          continue;
+        await this.reconcile(id);
+      }
+    } finally {
+      this.monitors.delete(id);
     }
   }
   private identity(host: Host): string {
@@ -166,6 +183,7 @@ export class TaskManager {
       spec,
       system: spec.sudo || host.username === "root",
       dependencyIds: hooks.dependencyIds,
+      hostIdentity: this.identity(host),
     };
     task.unit = "sre-" + task.id;
     this.update(task);
@@ -222,8 +240,15 @@ export class TaskManager {
     return this.public(task);
   }
   private public(task: StoredTask): Task {
-    const { spec, directory, cancelRequested, system, submitted, ...result } =
-      task;
+    const {
+      spec,
+      directory,
+      cancelRequested,
+      system,
+      submitted,
+      hostIdentity,
+      ...result
+    } = task;
     return result;
   }
   private get(id: string): StoredTask {
@@ -319,9 +344,27 @@ export class TaskManager {
     }
   }
   async reconcile(id: string): Promise<Task> {
+    const existing = this.checking.get(id);
+    if (existing) return existing;
+    const job = this.checkedReconcile(id);
+    this.checking.set(id, job);
+    try {
+      return await job;
+    } finally {
+      this.checking.delete(id);
+    }
+  }
+  private async checkedReconcile(id: string): Promise<Task> {
     this.busy.set(id, (this.busy.get(id) ?? 0) + 1);
     try {
-      return await this.reconcileTask(id);
+      const result = await this.reconcileTask(id);
+      if (
+        result.status === "running" &&
+        !this.monitors.has(id) &&
+        !this.stopped
+      )
+        this.track(this.monitor(id), id);
+      return result;
     } finally {
       this.releaseBusy(id);
     }
@@ -340,10 +383,18 @@ export class TaskManager {
     if (!task.directory) {
       task.status = "unknown";
       task.step = "缺少远程目录元数据，需要人工核验";
+      task.lastCheckedAt = new Date().toISOString();
+      task.reconcileFailures = 5;
+      task.nextCheckAt = undefined;
       this.update(task);
       return this.public(task);
     }
     try {
+      if (
+        task.hostIdentity &&
+        task.hostIdentity !== this.identity(this.ssh.host(task.hostId))
+      )
+        throw new Error("主机配置已变化，未访问新目标；请恢复原配置或人工核实");
       const result = await this.ssh.exec(
         task.hostId,
         `if test -f ${q(task.directory + "/exit.code")}; then printf 'SRE_EXIT='; cat -- ${q(task.directory + "/exit.code")}; printf '\n'; fi; systemctl ${task.system ? "" : "--user "}show ${q(task.unit!)} --property=LoadState --property=ActiveState --property=SubState --property=Result --property=ExecMainStatus; printf '\nSRE_LOG_BEGIN\n'; tail -c 500000 -- ${q(task.directory + "/output.log")}`,
@@ -384,12 +435,26 @@ export class TaskManager {
         task.cancelRequested = true;
         if (task.status === "failed") task.status = "cancelled";
       }
+      task.lastCheckedAt = new Date().toISOString();
+      task.reconcileFailures =
+        task.status === "unknown" ? (task.reconcileFailures ?? 0) + 1 : 0;
+      task.nextCheckAt =
+        task.status === "unknown"
+          ? new Date(
+              Date.now() + Math.min(30000, 1000 * 2 ** task.reconcileFailures),
+            ).toISOString()
+          : undefined;
       this.update(task);
       return this.public(task);
     } catch (error) {
       const latest = this.get(id);
       if (latest.status === "cancelled") return this.public(latest);
       task.status = "unknown";
+      task.lastCheckedAt = new Date().toISOString();
+      task.reconcileFailures = (task.reconcileFailures ?? 0) + 1;
+      task.nextCheckAt = new Date(
+        Date.now() + Math.min(30000, 1000 * 2 ** task.reconcileFailures),
+      ).toISOString();
       task.step =
         "核验失败：" +
         this.store.redact(
@@ -412,6 +477,11 @@ export class TaskManager {
     if (["succeeded", "failed", "cancelled"].includes(task.status))
       return this.public(task);
     task.cancelRequested = true;
+    if (
+      task.hostIdentity &&
+      task.hostIdentity !== this.identity(this.ssh.host(task.hostId))
+    )
+      throw new Error("主机配置已变化，未向新目标发送停止命令");
     if (task.status === "queued") {
       task.status = "cancelled";
       task.step = "已取消排队";

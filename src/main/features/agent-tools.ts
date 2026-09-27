@@ -9,6 +9,10 @@ import type { Task } from "../../shared/types";
 import { isMutation, parseTool, toolDecision } from "./agent-contract";
 import type { AgentPermission } from "../../shared/agent";
 
+import { renderAction, renderManagedWrite } from "./agent-execution";
+import { isSreTool, executeSreTool } from "./agent-sre-tools";
+import { executeVerification } from "./agent-verification";
+
 export class UncertainExecution extends Error {}
 const limit = 100000;
 const stopped = (signal: AbortSignal) => {
@@ -189,6 +193,20 @@ export class AgentTools {
     if (decision === "deny" || (decision === "confirm" && !approved))
       throw new Error("当前权限不允许此工具操作");
     stopped(signal);
+    if (["verify_file", "verify_package"].includes(call.tool))
+      return executeVerification(this.core, target, call, signal);
+    if (
+      [
+        "service_action",
+        "compose_action",
+        "compose_check",
+        "verify_service",
+      ].includes(call.tool) &&
+      target.kind !== "ssh"
+    )
+      throw new Error("此操作仅支持 SSH Linux 服务器");
+    if (isSreTool(call.tool))
+      return executeSreTool(this.core, target, call, signal);
     if (target.kind === "local") return this.local(target, call, signal);
     return this.remote(target, call, signal, onTask);
   }
@@ -293,12 +311,23 @@ export class AgentTools {
   ): Promise<unknown> {
     const a = call.arguments;
     let command: string;
-    if (call.tool === "inspect_system") {
+    if (
+      ["service_action", "compose_action", "compose_check"].includes(call.tool)
+    ) {
+      command = renderAction(call, target.root);
+    } else if (call.tool === "verify_service") {
+      command = "set -e\n";
+      if (a.unit)
+        command += `systemctl is-active --quiet -- ${q(String(a.unit))}\nprintf 'SRE_SERVICE_ACTIVE\\n'\n`;
+      if (a.url)
+        command += `curl -q --request GET --proto '=http' --noproxy '*' --silent --show-error --fail --max-time 15 --max-filesize 100000 --write-out '\\nHTTP_STATUS=%{http_code}\\n' -- ${q(loopbackUrl(String(a.url)))}`;
+    } else if (call.tool === "inspect_system") {
       const commands: Record<string, string> = {
         overview: "uname -a; cat /etc/os-release; uptime; free -m; df -h",
         processes: "ps aux --sort=-%cpu | head -n 80",
         services: "systemctl list-units --type=service --all --no-pager",
-        containers: "docker ps -a --no-trunc",
+        containers:
+          "docker --host unix:///var/run/docker.sock ps -a --no-trunc",
       };
       command = commands[a.kind as string];
     } else if (call.tool === "http_check") {
@@ -319,10 +348,7 @@ export class AgentTools {
           `test -f "$target" && test "$(stat -c %s -- "$target")" -le ${limit} || { echo '不是普通文件或超过100KB' >&2; exit 1; }; cat -- "$target"`;
       else if (call.tool === "make_directory")
         command = guard + 'mkdir -p -- "$target"';
-      else
-        command =
-          guard +
-          `printf %s ${q(Buffer.from(a.content as string, "utf8").toString("base64"))} | base64 -d > "$target"`;
+      else command = guard + renderManagedWrite(a.content as string);
     }
     stopped(signal);
     if (!isMutation(call)) {
@@ -333,9 +359,28 @@ export class AgentTools {
       });
       if (
         call.tool === "http_check" &&
-        !/^HTTP_STATUS=2\d\d$/m.test(result.stdout)
+        !/^HTTP_STATUS=2\d\d$/.test(
+          result.stdout.trimEnd().split("\n").at(-1) ?? "",
+        )
       )
         result.code = result.code || 1;
+      if (call.tool === "verify_service") {
+        const serviceOk =
+          !a.unit || /^SRE_SERVICE_ACTIVE$/m.test(result.stdout);
+        const httpOk =
+          !a.url ||
+          /^HTTP_STATUS=2\d\d$/.test(
+            result.stdout.trimEnd().split("\n").at(-1) ?? "",
+          );
+        const contentOk =
+          !a.expectText || result.stdout.includes(String(a.expectText));
+        return {
+          ...result,
+          code: result.code || (serviceOk && httpOk && contentOk ? 0 : 1),
+          checks: { serviceOk, httpOk, contentOk },
+          observedAt: new Date().toISOString(),
+        };
+      }
       return result;
     }
     const spec = {
@@ -343,7 +388,9 @@ export class AgentTools {
       title: `AI：${call.tool}`,
       script: command,
       sudo: target.sudo,
-      timeout: (a.timeout as number | undefined) ?? 120,
+      timeout:
+        (a.timeout as number | undefined) ??
+        (call.tool === "compose_action" ? 600 : 120),
     };
     const preview = this.core.tasks.preview(spec);
     const task = this.core.tasks.run(preview.token, spec, { source: "ai" });
@@ -356,7 +403,14 @@ export class AgentTools {
       }
       const current = this.core.store.get<Task>("tasks", task.id);
       if (!current) throw new UncertainExecution("远端任务记录丢失，请核实");
-      if (current.status === "unknown")
+      if (
+        current.status === "unknown" &&
+        !(
+          current.nextCheckAt &&
+          (current.reconcileFailures ?? 0) < 5 &&
+          !signal.aborted
+        )
+      )
         throw new UncertainExecution(
           `远端任务 ${task.id} 状态待核实，请在本会话执行记录中核实；未自动重试`,
         );

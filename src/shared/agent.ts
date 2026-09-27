@@ -1,3 +1,4 @@
+import type { SreSkill, SreSkillMode } from "./sre-skills";
 export type AgentPermission = "advice" | "readonly" | "confirm" | "autonomous";
 export type AgentTarget =
   | { kind: "local"; root: string }
@@ -20,7 +21,21 @@ export interface AgentToolCall {
     | "make_directory"
     | "inspect_system"
     | "run_command"
-    | "http_check";
+    | "http_check"
+    | "host_resources"
+    | "clock_status"
+    | "network_listeners"
+    | "service_status"
+    | "service_logs"
+    | "container_logs"
+    | "monitoring_query"
+    | "update_plan"
+    | "service_action"
+    | "compose_action"
+    | "compose_check"
+    | "verify_service"
+    | "verify_file"
+    | "verify_package";
   arguments: Record<string, unknown>;
 }
 export interface AgentStep {
@@ -32,10 +47,31 @@ export interface AgentStep {
     "thinking" | "pending" | "running" | "succeeded" | "failed" | "rejected";
   output?: string;
   taskId?: string;
+  uncertain?: boolean;
+  startedAt?: string;
+  finishedAt?: string;
+}
+export interface AgentPlan {
+  goal: string;
+  steps: {
+    id: string;
+    title: string;
+    status: "pending" | "running" | "completed" | "blocked";
+    evidence: string[];
+  }[];
+  acceptance: string[];
+  checks?: AgentToolCall[];
 }
 export interface AgentSession {
+  executionVersion?: number;
+  activeInstruction?: string;
+  turnStart?: number;
+  plan?: AgentPlan;
+  skillHistory?: { fromStep: number; skills: SreSkill[] }[];
   id: string;
   title?: string;
+  skillMode?: SreSkillMode;
+  skills?: SreSkill[];
   providerId: string;
   permission: AgentPermission;
   target: AgentTarget;
