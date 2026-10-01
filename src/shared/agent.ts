@@ -1,4 +1,5 @@
 import type { SreSkill, SreSkillMode } from "./sre-skills";
+import type { ToolPin } from "./studio";
 export type AgentPermission = "advice" | "readonly" | "confirm" | "autonomous";
 export type AgentTarget =
   | { kind: "local"; root: string }
@@ -35,10 +36,13 @@ export interface AgentToolCall {
     | "compose_check"
     | "verify_service"
     | "verify_file"
-    | "verify_package";
+    | "verify_package"
+    | (string & {});
   arguments: Record<string, unknown>;
 }
 export interface AgentStep {
+  approval?:{requestedAt:string;decidedAt?:string;approved?:boolean};
+  risk?:import("./risk").RiskAssessment;
   id: string;
   createdAt: string;
   summary: string;
@@ -50,6 +54,9 @@ export interface AgentStep {
   uncertain?: boolean;
   startedAt?: string;
   finishedAt?: string;
+  toolVersion?: string;
+  toolDigest?: string;
+  toolRisk?: number;
 }
 export interface AgentPlan {
   goal: string;
@@ -63,6 +70,12 @@ export interface AgentPlan {
   checks?: AgentToolCall[];
 }
 export interface AgentSession {
+  modelUsageCaptured?:boolean;
+  recoveryEvents?:{at:string;status:string;summary:string}[];
+  resumeEvents?:{at:string;summary:string}[];
+  agentSnapshot?:import("./studio").AgentRuntimeSnapshot;
+  skillIds?: string[];
+  toolPins?: ToolPin[];
   executionVersion?: number;
   activeInstruction?: string;
   turnStart?: number;

@@ -1,0 +1,8 @@
+{
+ "id":"custom.web-health", "name":"隔离Web健康观测", "version":"1.0.0",
+ "description":"检查选定SSH服务器的回环HTTP端口，输出结构化健康状态，供Condition分支使用。",
+ "category":"诊断", "type":"remote-script", "permission":"readonly", "risk":10,
+ "timeout":15, "target":"ssh", "verification":false, "script":"run.sh",
+ "inputSchema":{"type":"object","properties":{"port":{"type":"integer","minimum":1024,"maximum":65535}},"required":["port"],"additionalProperties":false},
+ "outputSchema":{"type":"object","properties":{"healthy":{"type":"boolean"},"status":{"type":"integer"},"detail":{"type":"string","maxLength":500}},"required":["healthy","status","detail"],"additionalProperties":false}
+}

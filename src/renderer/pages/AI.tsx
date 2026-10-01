@@ -26,7 +26,9 @@ import type { AgentPermission, AgentSession } from "../../shared/agent";
 import { agentStatusLabels, permissionLabels } from "../../shared/agent";
 import { call, reportError } from "../api";
 import AIScripts from "./AIScripts";
+import RiskDetails from "../components/RiskDetails";
 import { sreSkills, type SreSkillMode } from "../../shared/sre-skills";
+import type { SkillDefinition } from "../../shared/studio";
 
 const descriptions: Record<AgentPermission, string> = {
   advice: "只分析需求，不读取主机文件或执行工具。",
@@ -71,6 +73,9 @@ function AgentWorkspace({
   const [hostId, setHost] = useState("");
   const [sudo, setSudo] = useState(false);
   const [skillMode, setSkillMode] = useState<SreSkillMode>("auto");
+  const [skillIds,setSkillIds]=useState<string[]>([]);
+  const [availableSkills,setAvailableSkills]=useState<(SkillDefinition&{missingTools:string[]})[]>([]);
+  useEffect(()=>{void call<(SkillDefinition&{missingTools:string[]})[]>("studio.skill.list").then(setAvailableSkills).catch(reportError);},[selected]);
   const [maxSteps, setMaxSteps] = useState(40);
   const [message, setMessage] = useState("");
   const [busy, setBusy] = useState(false);
@@ -126,6 +131,7 @@ function AgentWorkspace({
       setProvider(session.providerId);
       setPermission(session.permission);
       setSkillMode(session.skillMode ?? "none");
+      setSkillIds(session.skillIds??[]);
       setRoot(session.target.root);
       setMaxSteps(session.maxSteps);
       if (session.target.kind === "ssh") {
@@ -168,6 +174,7 @@ function AgentWorkspace({
           instruction: message,
           maxSteps,
           skillMode,
+          ...(skillIds.length?{skillIds}:{}),
         });
         setSelected(created.id);
         setSession(created);
@@ -262,6 +269,7 @@ function AgentWorkspace({
               <div className="muted">
                 新任务可自动匹配或指定技能；技能不会提升执行权限。
               </div>
+              <Select mode="multiple" aria-label="指定技能包" placeholder="指定技能包（优先于自动匹配）" value={skillIds} onChange={setSkillIds} disabled={!!selected} style={{width:"100%"}} maxCount={8} options={availableSkills.map(s=>({value:s.id,label:`${s.name} v${s.version}`,disabled:!s.enabled||!!s.missingTools.length}))}/>
               <label>执行权限</label>
               <Select
                 aria-label="执行权限"
@@ -455,6 +463,7 @@ function AgentWorkspace({
               )}
             </Space>
           </header>
+          {session?.agentSnapshot&&<Alert type="info" showIcon title={`${session.agentSnapshot.definition.name} · v${session.agentSnapshot.definition.version} · ${session.agentSnapshot.definition.riskPolicy}`} description={`本次固定 ${session.agentSnapshot.tools.length} 项Tool、${session.agentSnapshot.skills.length} 项Skill。模型：${session.agentSnapshot.modelProfile.model}。截止时间：${new Date(session.agentSnapshot.deadline).toLocaleString()}。配置编辑不改变此快照。`}/>}
           {!!session?.skills?.length && (
             <div
               style={{
@@ -624,6 +633,7 @@ function AgentWorkspace({
                                       : " · 等待执行结果"}
                                   </Typography.Paragraph>
                                 )}
+                                {step.risk&&<RiskDetails risk={step.risk}/>}
                                 {step.call && (
                                   <pre className="output">
                                     {JSON.stringify(step.call, null, 2)}
@@ -703,6 +713,8 @@ function AgentWorkspace({
                 {pending && (
                   <div className="agent-approval">
                     <strong>确认本次操作</strong>
+                    {pending.risk&&<RiskDetails risk={pending.risk}/>}
+                    {pending.toolVersion && <p>工具版本：{pending.toolVersion} · 基础风险：{pending.toolRisk ?? "—"} / 100{pending.call?.tool.startsWith("custom.") ? " · 导入工具始终需要审批" : ""}</p>}
                     <p>{pending.summary}</p>
                     <pre className="output">
                       {JSON.stringify(pending.call, null, 2)}

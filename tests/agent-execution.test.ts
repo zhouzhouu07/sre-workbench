@@ -245,6 +245,21 @@ import path from "node:path";
 import { fileVerificationScript } from "../src/main/features/agent-verification";
 const pythonAvailable =
   spawnSync("python", ["--version"], { windowsHide: true }).status === 0;
+it.skipIf(!pythonAvailable)("preserves POSIX symlink parent semantics before checking absence", () => {
+  const prefix = `import os,stat,posixpath,types\nfrom unittest.mock import patch\nentries={'/task':stat.S_IFDIR,'/outside':stat.S_IFDIR,'/outside/dir':stat.S_IFDIR,'/task/escape':stat.S_IFLNK,'/outside/victim':stat.S_IFREG}\ndef lookup(p,*args,**kwargs):\n if p not in entries: raise FileNotFoundError(2,'missing',p)\n return types.SimpleNamespace(st_mode=entries[p])\nwith patch('os.path',posixpath),patch('os.lstat',lookup),patch('os.stat',lookup),patch('os.readlink',lambda p:'/outside/dir'):\n assert posixpath.realpath('/task/escape/../victim')=='/outside/victim'\n exec(${JSON.stringify(fileVerificationScript)})\n`;
+  const result = spawnSync("python", ["-I", "-S", "-c", prefix, "/task", JSON.stringify({path: "escape/../victim", exists: false})], {encoding: "utf8", windowsHide: true});
+  expect(result.status).toBe(1);
+  expect(JSON.parse(result.stdout)).toMatchObject({passed: false, errorType: "ValueError"});
+});
+it.skipIf(!pythonAvailable)("fails absence verification when metadata lookup is denied instead of proving a missing file", () => {
+  const root = mkdtempSync(path.join(tmpdir(), "sre-verifier-denied-"));
+  try {
+    const prefix = `import os\noriginal_lstat=os.lstat\ndef guarded_lstat(p,*args,**kwargs):\n if str(p).endswith('denied.txt'): raise PermissionError(13,'denied')\n return original_lstat(p,*args,**kwargs)\nos.lstat=guarded_lstat\n`;
+    const result = spawnSync("python", ["-I", "-S", "-c", prefix + fileVerificationScript, root, JSON.stringify({path: "denied.txt", exists: false})], {encoding: "utf8", windowsHide: true});
+    expect(result.status).toBe(1);
+    expect(JSON.parse(result.stdout)).toMatchObject({passed: false, errorType: "PermissionError"});
+  } finally { rmSync(root, {recursive: true, force: true}); }
+});
 it.skipIf(!pythonAvailable)(
   "parses real files without executing Python, rejects bad assertions and scope escapes",
   () => {
@@ -284,6 +299,10 @@ it.skipIf(!pythonAvailable)(
       });
       expect(good.status).toBe(0);
       expect(JSON.parse(good.stdout).passed).toBe(true);
+      expect(run({ path: "missing", exists: false }).status).toBe(0);
+      expect(run({ path: "good.json", exists: false }).status).toBe(1);
+      expect(run({ path: "../absent", exists: false }).status).toBe(1);
+      expect(() => run({ path: "missing", exists: false, expectText: "ready" })).toThrow();
       expect(run({ path: "parse.py", format: "python" }).status).toBe(0);
       for (const args of [
         { path: "good.json", expectText: "absent" },
@@ -303,6 +322,9 @@ it.skipIf(!pythonAvailable)(
         process.platform === "win32" ? "junction" : "dir",
       );
       expect(run({ path: "escape/outside" }).status).toBe(1);
+      expect(run({ path: "escape/absent", exists: false }).status).toBe(1);
+      symlinkSync(path.join(root, "missing-target"), path.join(root, "dangling"), process.platform === "win32" ? "junction" : "dir");
+      expect(run({path: "dangling", exists: false}).status).toBe(1);
     } finally {
       rmSync(base, { recursive: true, force: true });
     }
@@ -312,6 +334,17 @@ const bash =
   process.platform === "win32"
     ? "C:/Program Files/Git/bin/bash.exe"
     : "/bin/bash";
+it.skipIf(!existsSync(bash))("rejects critical realpath destinations before a structured remote mutation",async()=>{
+ let task:any;const core:any={tasks:{preview:()=>({token:"test"}),run:(_token:string,spec:any)=>{
+  const prefix=String.raw`realpath() { case "$3" in /tmp/scoped) printf '%s\n' /etc;; *) printf '%s\n' /etc/shadow;; esac; }
+mkdir() { printf 'MUTATION_REACHED\n'; }
+`;
+  const result=spawnSync(bash,["--noprofile","--norc"],{input:prefix+spec.script,encoding:"utf8",windowsHide:true});
+  task={id:"test",status:result.status===0?"succeeded":"failed",exitCode:result.status,logs:result.stdout+result.stderr};return task;
+ }},store:{get:()=>task}};
+ const result:any=await new AgentTools(core).execute({kind:"ssh",hostId:"test",root:"/tmp/scoped",sudo:false},"autonomous",{tool:"make_directory",arguments:{path:"critical-link"}},true,new AbortController().signal,()=>{});
+ expect(result.code).toBe(1);expect(result.stdout).toContain("CRITICAL");expect(result.stdout).not.toContain("MUTATION_REACHED");
+});
 it.skipIf(!existsSync(bash))(
   "executes staged writes with preserved backup on a real local filesystem",
   () => {

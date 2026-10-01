@@ -22,6 +22,14 @@ const COLLECTIONS = [
   "monitoring",
   "providers",
   "aiSessions",
+  "tools",
+  "toolUsage",
+  "skills",
+  "agents",
+  "workflows",
+  "workflowRuns",
+  "modelUsage",
+  "benchmarkRuns",
 ];
 export class Store {
   private db!: Database;
@@ -182,7 +190,7 @@ export class Store {
   }
   snapshot(): Snapshot {
     const snapshot = Object.fromEntries(
-      COLLECTIONS.filter((c) => c !== "aiSessions").map((c) => [
+      COLLECTIONS.filter((c) => !["aiSessions", "tools", "toolUsage", "skills", "agents", "workflows", "workflowRuns", "modelUsage", "benchmarkRuns"].includes(c)).map((c) => [
         c,
         this.list(c),
       ]),

@@ -1,0 +1,10 @@
+{
+  "id":"custom.web-diagnosis", "name":"Web服务证据巡检", "version":"1.0.0",
+  "description":"依据服务状态、监听和日志定位Web异常，输出证据与未验证项。",
+  "triggers":["Web故障","HTTP不可达"],
+  "requiredTools":["network_listeners","service_status","service_logs"],
+  "optionalTools":["http_check","host_resources"],
+  "constraints":["只诊断用户指定服务，不修改无关业务","不重启、不安装、不清理数据"],
+  "riskHints":["active状态不是业务健康证明；监听端口不能单独证明外部可达"],
+  "acceptanceCriteria":["报告引用成功观测的步骤ID","区分事实、推断和未验证项"]
+}

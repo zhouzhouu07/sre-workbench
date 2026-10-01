@@ -2,6 +2,9 @@ import { randomUUID, createHash } from "node:crypto";
 import { z } from "zod";
 import type { AIProvider, AgentResult, AppEvent } from "../../shared/types";
 import type { Store } from "../core/store";
+import type { AgentToolCall } from "../../shared/agent";
+import type { ToolDefinition } from "../../shared/studio";
+import type { ModelUsage } from "../../shared/trace";
 import {
   AgentReplyError,
   parseAgentReply,
@@ -220,6 +223,7 @@ export class AIService {
     system: string,
     context: string,
     signal: AbortSignal,
+    registry?: { parse: (value: unknown) => AgentToolCall; catalog: ToolDefinition[] },
   ) {
     const provider = this.getProvider(providerId);
     if (provider.kind !== "model")
@@ -235,6 +239,7 @@ export class AIService {
         instruction: "继续完成本次任务",
         context,
         agentSystem: system,
+        registry,
       });
     } finally {
       signal.removeEventListener("abort", cancel);
@@ -247,6 +252,7 @@ export class AIService {
       instruction: string;
       context: string;
       agentSystem?: string;
+      registry?: { parse: (value: unknown) => AgentToolCall; catalog: ToolDefinition[] };
     },
     probe = false,
   ) {
@@ -254,6 +260,8 @@ export class AIService {
     const ctrl = new AbortController();
     this.requests.set(p.requestId, ctrl);
     const timer = setTimeout(() => ctrl.abort(), provider.timeout * 1000);
+    const usage:ModelUsage|undefined=p.agentSystem?{id:randomUUID(),requestId:p.requestId,providerId:provider.id,model:provider.model??"",startedAt:new Date().toISOString(),status:"running"}:undefined;
+    if(usage)this.store.put("modelUsage",usage);
     try {
       const key = provider.credentialId
         ? this.store.getSecret(provider.credentialId)
@@ -285,7 +293,7 @@ export class AIService {
                 ...(p.agentSystem
                   ? {
                       thinking: { type: "disabled" },
-                      tools: [anthropicStepTool],
+                      tools: [p.registry ? {...anthropicStepTool,input_schema:{...anthropicStepTool.input_schema,properties:{...anthropicStepTool.input_schema.properties,call:{anyOf:p.registry.catalog.map(t=>({type:"object",properties:{tool:{type:"string",const:t.id},arguments:t.inputSchema},required:["tool","arguments"],additionalProperties:false}))}}}} : anthropicStepTool],
                       tool_choice: {
                         type: "tool",
                         name: "submit_step",
@@ -334,6 +342,7 @@ export class AIService {
         const hints: Record<number, string> = {
           400: "请核对协议、模型名称和请求格式",
           401: "请核对 API Key",
+          402: "服务商账户余额或计费权限不足，请检查余额后再继续",
           403: "请核对密钥权限或服务区域",
           404: "请核对接口地址、协议和模型名称",
           429: "请求受限，请检查配额或稍后重试",
@@ -364,8 +373,10 @@ export class AIService {
       } catch {
         throw new Error("API 返回的内容不是有效 JSON，请检查接口地址和协议");
       }
-      if (p.agentSystem && protocol === "anthropic")
-        return parseAnthropicStep(result?.content);
+      if(usage){const numeric=(v:unknown)=>typeof v==="number"&&Number.isSafeInteger(v)&&v>=0?v:undefined;usage.inputTokens=numeric(result?.usage?.input_tokens??result?.usage?.prompt_tokens);usage.outputTokens=numeric(result?.usage?.output_tokens??result?.usage?.completion_tokens);usage.totalTokens=numeric(result?.usage?.total_tokens)??(usage.inputTokens!==undefined&&usage.outputTokens!==undefined?usage.inputTokens+usage.outputTokens:undefined);}
+      if (p.agentSystem && protocol === "anthropic"){
+        const reply=parseAnthropicStep(result?.content, p.registry?.parse);if(usage)usage.status="succeeded";return reply;
+      }
       const content =
         protocol === "agent"
           ? result
@@ -385,10 +396,12 @@ export class AIService {
           throw new Error("API 未返回文本内容，请检查模型与协议");
         return;
       }
-      return p.agentSystem
-        ? parseAgentReply(content)
+      const reply = p.agentSystem
+        ? parseAgentReply(content, p.registry?.parse)
         : parseAgentResult(content);
+      if(usage)usage.status="succeeded";return reply;
     } catch (e) {
+      if(usage){usage.status="failed";usage.error=this.store.redact(sanitizeContext(e instanceof Error?e.message:String(e))).slice(0,2000);}
       if (ctrl.signal.aborted) throw new Error("请求已取消或超时");
       if (e instanceof AgentReplyError) throw e;
       if (e instanceof TypeError) {
@@ -405,6 +418,7 @@ export class AIService {
         this.store.redact(e instanceof Error ? e.message : String(e)),
       );
     } finally {
+      if(usage){usage.finishedAt=new Date().toISOString();this.store.put("modelUsage",usage);}
       clearTimeout(timer);
       this.requests.delete(p.requestId);
     }

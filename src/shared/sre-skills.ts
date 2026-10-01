@@ -12,6 +12,9 @@ export interface SreSkill {
   version: string;
   name: string;
   instructions: string;
+  skillId?:string; skillVersion?:string; instructionsSnapshot?:string;
+  toolDependencies?:import("./studio").ToolPin[]; acceptanceSnapshot?:string[];
+  constraints?:string[]; riskHints?:string[]; digest?:string;
 }
 export const sreSkills: SreSkill[] = [
   {

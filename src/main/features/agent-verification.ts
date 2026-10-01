@@ -3,27 +3,32 @@ import type { Backend } from "../core/backend";
 import type { AgentTarget, AgentToolCall } from "../../shared/agent";
 import { shellQuote as q } from "../core/safety";
 
+const verificationPath = z
+  .string()
+  .min(1)
+  .max(4096)
+  .refine((v) => !/[\x00-\x1f]/.test(v));
 export const verificationSchemas = {
-  verify_file: z
-    .object({
-      path: z
-        .string()
-        .min(1)
-        .max(4096)
-        .refine((v) => !/[\x00-\x1f]/.test(v)),
-      format: z.enum(["binary", "text", "json", "python"]).default("binary"),
-      minBytes: z.number().int().min(0).max(1048576).default(1),
-      expectText: z.string().min(1).max(1000).optional(),
-      sha256: z
-        .string()
-        .regex(/^[a-fA-F0-9]{64}$/)
-        .optional(),
-      mode: z
-        .string()
-        .regex(/^[0-7]{3,4}$/)
-        .optional(),
-    })
-    .strict(),
+  verify_file: z.union([
+    z
+      .object({
+        path: verificationPath,
+        exists: z.literal(true).optional(),
+        format: z.enum(["binary", "text", "json", "python"]).default("binary"),
+        minBytes: z.number().int().min(0).max(1048576).default(1),
+        expectText: z.string().min(1).max(1000).optional(),
+        sha256: z
+          .string()
+          .regex(/^[a-fA-F0-9]{64}$/)
+          .optional(),
+        mode: z
+          .string()
+          .regex(/^[0-7]{3,4}$/)
+          .optional(),
+      })
+      .strict(),
+    z.object({ path: verificationPath, exists: z.literal(false) }).strict(),
+  ]),
   verify_package: z
     .object({
       name: z
@@ -60,8 +65,16 @@ export const fileVerificationScript = `import os,sys,json,stat,hashlib,ast
 a=json.loads(sys.argv[2])
 def invalid_constant(value): raise ValueError('non-finite JSON constant')
 try:
- root=os.path.realpath(sys.argv[1]); target=os.path.realpath(os.path.join(root,a['path']))
+ selected=os.path.abspath(sys.argv[1]); root=os.path.realpath(selected); candidate=os.path.join(selected,a['path']); target=os.path.realpath(candidate)
  if not os.path.isdir(root) or os.path.commonpath([root,target])!=root: raise ValueError('path outside task root')
+ if os.path.commonpath([selected,os.path.abspath(candidate)])!=selected: raise ValueError('path outside task root')
+ if a.get('exists',True)==False:
+  try:
+   os.lstat(candidate); present=True
+  except FileNotFoundError:
+   present=False
+  print(json.dumps({'path':candidate,'exists':present,'checks':{'exists':not present},'passed':not present}))
+  sys.exit(1 if present else 0)
  with os.fdopen(os.open(target,os.O_RDONLY|getattr(os,'O_NONBLOCK',0)),'rb') as f:
   s=os.fstat(f.fileno())
   if not stat.S_ISREG(s.st_mode): raise ValueError('not a regular file')

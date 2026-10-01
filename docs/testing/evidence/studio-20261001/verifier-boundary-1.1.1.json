@@ -1,0 +1,89 @@
+{
+  "root": "/opt/sre-benchmark/9d96b9cf-178a-4b6e-9b7c-9f879937f5bf/verifier-boundary",
+  "seedTaskId": "f9089e1c-fdc7-4291-87c6-9ea925dde6d0",
+  "tool": {
+    "id": "verify_file",
+    "version": "1.1.1",
+    "digest": "be59cb54edaad3d5028fb31363f5ed9788251afcd1cc39f7a0df6f64b8c43886"
+  },
+  "cases": [
+    {
+      "path": "absent",
+      "expectedCode": 0,
+      "result": {
+        "code": 0,
+        "data": {
+          "path": "/opt/sre-benchmark/9d96b9cf-178a-4b6e-9b7c-9f879937f5bf/verifier-boundary/absent",
+          "exists": false,
+          "checks": {
+            "exists": true
+          },
+          "passed": true
+        },
+        "stdout": "{\"path\": \"/opt/sre-benchmark/9d96b9cf-178a-4b6e-9b7c-9f879937f5bf/verifier-boundary/absent\", \"exists\": false, \"checks\": {\"exists\": true}, \"passed\": true}\n",
+        "stderr": "",
+        "evidence": {
+          "tool": "verify_file",
+          "hostId": "32acc0e0-f992-44c6-a5bd-fa71425c4648",
+          "startedAt": "2026-10-01T14:12:43.241Z",
+          "observedAt": "2026-10-01T14:12:43.441Z"
+        },
+        "note": "只验证本次指定断言；语法正确或包已安装不代表业务运行正确。文件验收依赖/usr/bin/python3且最大1MiB。"
+      }
+    },
+    {
+      "path": "nested/victim",
+      "expectedCode": 1,
+      "result": {
+        "code": 1,
+        "stdout": "{\"path\": \"/opt/sre-benchmark/9d96b9cf-178a-4b6e-9b7c-9f879937f5bf/verifier-boundary/nested/victim\", \"exists\": true, \"checks\": {\"exists\": false}, \"passed\": false}\n",
+        "stderr": "",
+        "evidence": {
+          "tool": "verify_file",
+          "hostId": "32acc0e0-f992-44c6-a5bd-fa71425c4648",
+          "startedAt": "2026-10-01T14:12:43.448Z",
+          "observedAt": "2026-10-01T14:12:43.649Z"
+        },
+        "note": "只验证本次指定断言；语法正确或包已安装不代表业务运行正确。文件验收依赖/usr/bin/python3且最大1MiB。"
+      }
+    },
+    {
+      "path": "dangling",
+      "expectedCode": 1,
+      "result": {
+        "code": 1,
+        "stdout": "{\"path\": \"/opt/sre-benchmark/9d96b9cf-178a-4b6e-9b7c-9f879937f5bf/verifier-boundary/dangling\", \"exists\": true, \"checks\": {\"exists\": false}, \"passed\": false}\n",
+        "stderr": "",
+        "evidence": {
+          "tool": "verify_file",
+          "hostId": "32acc0e0-f992-44c6-a5bd-fa71425c4648",
+          "startedAt": "2026-10-01T14:12:43.655Z",
+          "observedAt": "2026-10-01T14:12:43.855Z"
+        },
+        "note": "只验证本次指定断言；语法正确或包已安装不代表业务运行正确。文件验收依赖/usr/bin/python3且最大1MiB。"
+      }
+    },
+    {
+      "path": "link/../victim",
+      "expectedCode": 1,
+      "result": {
+        "code": 1,
+        "stdout": "{\"path\": \"/opt/sre-benchmark/9d96b9cf-178a-4b6e-9b7c-9f879937f5bf/verifier-boundary/link/../victim\", \"exists\": true, \"checks\": {\"exists\": false}, \"passed\": false}\n",
+        "stderr": "",
+        "evidence": {
+          "tool": "verify_file",
+          "hostId": "32acc0e0-f992-44c6-a5bd-fa71425c4648",
+          "startedAt": "2026-10-01T14:12:43.861Z",
+          "observedAt": "2026-10-01T14:12:44.061Z"
+        },
+        "note": "只验证本次指定断言；语法正确或包已安装不代表业务运行正确。文件验收依赖/usr/bin/python3且最大1MiB。"
+      }
+    }
+  ],
+  "permission": {
+    "stdout": "{\"passed\": false, \"errorType\": \"PermissionError\"}\n",
+    "stderr": "",
+    "code": 1
+  },
+  "modelCalls": 0
+}

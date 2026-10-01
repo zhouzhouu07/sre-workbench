@@ -3,6 +3,7 @@ import path from "node:path";
 import type { AgentStep, AgentToolCall } from "../../shared/agent";
 import { shellQuote as q } from "../core/safety";
 import { verificationCheckSchema } from "./agent-verification";
+import {isSreTool} from "./agent-sre-tools";
 const unit = z
   .string()
   .min(1)
@@ -89,6 +90,7 @@ export function completionEvidence(
   requireService = steps.some(
     (s) =>
       s.call?.tool === "run_command" ||
+      s.call?.tool.startsWith("custom.") ||
       s.call?.tool === "service_action" ||
       s.call?.tool === "compose_action",
   ),
@@ -98,7 +100,8 @@ export function completionEvidence(
   steps.forEach((s, i) => {
     if (
       s.call &&
-      mutationTools.includes(s.call.tool) &&
+      (mutationTools.includes(s.call.tool) ||
+        s.call.tool.startsWith("custom.")) &&
       !["pending", "rejected"].includes(s.status)
     )
       last = i;
@@ -139,6 +142,69 @@ export function completionEvidence(
         ).includes(s.call.tool),
     ),
   );
+}
+export function isCompletionObservation(call: AgentToolCall) {
+  return isSreTool(call.tool) || ["run_command", "http_check", "read_file", "inspect_system", "verify_service", "compose_check", "verify_file", "verify_package"].includes(call.tool);
+}
+export function executionGuidance(
+  steps: AgentStep[],
+  checks: AgentToolCall[] = [],
+  requireService = false,
+) {
+  let last = -1;
+  steps.forEach((step, index) => {
+    if (
+      step.call &&
+      (mutationTools.includes(step.call.tool) ||
+        step.call.tool.startsWith("custom.")) &&
+      !["pending", "rejected"].includes(step.status)
+    )
+      last = index;
+  });
+  const evidenceIndex = steps
+    .filter(
+      (step) =>
+        step.call &&
+        step.call.tool !== "update_plan" &&
+        step.status === "succeeded" &&
+        !step.uncertain,
+    )
+    .map((step) => ({
+      id: step.id,
+      tool: step.call!.tool,
+      summary: step.summary.slice(0, 200),
+    }));
+  return {
+    evidenceIndex,
+    lastMutationStepId: steps[last]?.id ?? null,
+    serviceVerificationRequired: requireService,
+    checks: checks.map((call) => {
+      const latest = steps
+        .slice(last + 1)
+        .filter(
+          (step) =>
+            step.call?.tool === call.tool &&
+            JSON.stringify(step.call.arguments) ===
+              JSON.stringify(call.arguments),
+        )
+        .at(-1);
+      return {
+        call,
+        status: !latest
+          ? "missing"
+          : latest.status === "succeeded" && !latest.uncertain
+            ? "passed"
+            : latest.status,
+        stepId: latest?.id,
+      };
+    }),
+    verificationIds: last < 0 ? steps.filter(step => step.status === "succeeded" && !step.uncertain && step.call && isCompletionObservation(step.call)).map(step => step.id) : completionEvidence(
+      steps,
+      evidenceIndex.map((item) => item.id),
+      requireService,
+      checks,
+    ),
+  };
 }
 export function renderAction(call: AgentToolCall, root: string): string {
   const a = call.arguments;

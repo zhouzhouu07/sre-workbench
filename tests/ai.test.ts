@@ -72,6 +72,10 @@ describe("AI boundary", () => {
   });
 });
 describe("AI HTTP integration", () => {
+  it("explains HTTP 402 billing failure without exposing the provider response body",async()=>{
+    const s=await service((_req,res)=>{res.statusCode=402;res.end('untrusted body test-key');},{kind:"model",model:"test",protocol:"anthropic",path:"/anthropic"});
+    try{await expect(s.ai.handle("provider.test",{id:"p"})).rejects.toThrow(/HTTP 402.*余额/);}finally{await s.close();}
+  });
   async function service(
     handler: RequestListener,
     overrides: Record<string, unknown> = {},

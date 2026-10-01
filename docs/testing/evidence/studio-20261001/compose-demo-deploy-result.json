@@ -1,0 +1,12 @@
+{
+  "runId": "7cc329cb-99b9-4f77-af86-6a95932ba217",
+  "root": "/opt/sre-benchmark/18a02e0a-186b-441e-84cf-db9e6376bbd7/3-C",
+  "project": "srebench-18a02e0a-3-c",
+  "port": 18700,
+  "status": "completed",
+  "evidence": {
+    "stdout": "verified: HTTP200 benchmark-ready\n",
+    "stderr": "",
+    "code": 0
+  }
+}

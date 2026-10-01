@@ -10,6 +10,8 @@ export interface ExecResult {
   code: number;
 }
 export interface ExecOptions {
+  /** Internal isolated benchmark query fault; never accepted by renderer IPC. */
+  disconnectAfterMs?: number;
   sudo?: boolean;
   timeout?: number;
   input?: string;
@@ -138,6 +140,7 @@ export class SSHManager {
         if (done) return;
         done = true;
         clearTimeout(timer);
+          clearTimeout(disconnectTimer);
         client.end();
         if (error) reject(error);
         else
@@ -151,6 +154,7 @@ export class SSHManager {
         () => finish(new Error("SSH 命令超时，远程状态需核验")),
         Math.min(options.timeout || 30000, 3600000),
       );
+      const disconnectTimer = options.disconnectAfterMs === undefined ? undefined : setTimeout(() => client.end(), options.disconnectAfterMs);
       client.once("close", () => finish(new Error("SSH 连接已中断")));
       client.exec(wrapped, (error, channel) => {
         if (error) return finish(error);

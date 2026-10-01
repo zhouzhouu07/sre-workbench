@@ -1,6 +1,6 @@
 {
   "name": "sre-workbench",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "description": "SRE 运维工作台",
   "author": "SRE Workbench",
   "private": true,
@@ -39,7 +39,17 @@
         "from": "docs",
         "filter": [
           "user-guide.md",
-          "agent-api.md"
+          "agent-api.md",
+          "agent-builder.md",
+          "workflow-studio.md",
+          "tool-packages.md",
+          "skill-packages.md",
+          "risk-engine.md",
+          "execution-trace.md",
+          "competition-agent-studio.md",
+          "releases/v0.4.0.md",
+          "testing/competition-agent-benchmark.md",
+          "testing/evidence/studio-20261001/**"
         ],
         "to": "docs"
       }

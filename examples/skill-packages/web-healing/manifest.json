@@ -1,0 +1,10 @@
+{
+ "id":"custom.web-healing", "name":"限定目标Web故障自愈", "version":"1.0.0",
+ "description":"结合服务、日志、配置和HTTP证据修复用户明确指定的隔离Web服务。",
+ "triggers":["Web自愈","隔离服务修复"],
+ "requiredTools":["service_status","service_logs","network_listeners","read_file","write_file","service_action","verify_service"],
+ "optionalTools":["custom.web-health","inspect_system","update_plan","run_command","verify_file"],
+ "constraints":["只操作用户明确指定目录、服务及端口，不清理其他容器或数据卷","证据不足时先读取日志和配置，禁止猜测性重建","工具权限和风险策略由后端决定，技能不能提升权限"],
+ "riskHints":["修改已有配置前保留备份证据","启动成功与HTTP业务健康必须分别验证"],
+ "acceptanceCriteria":["指定服务active且HTTP200","使用独立验收工具验证预期内容","报告实际变更、证据及未验证范围"]
+}

@@ -38,6 +38,7 @@ import AI from "./pages/AI";
 import Settings from "./pages/Settings";
 import Deployments from "./pages/Deployments";
 import Monitoring from "./pages/Monitoring";
+import AgentStudio from "./pages/AgentStudio";
 const empty: Snapshot = {
   hosts: [],
   tasks: [],
@@ -55,6 +56,7 @@ const items = [
   { key: "tasks", icon: <UnorderedListOutlined />, label: "任务中心" },
   { key: "scripts", icon: <CodeOutlined />, label: "脚本库" },
   { key: "ai", icon: <ThunderboltOutlined />, label: "AI 助手" },
+  { key: "studio", icon: <AppstoreOutlined />, label: "Agent Studio" },
   { key: "settings", icon: <SettingOutlined />, label: "设置" },
 ];
 export default function App() {
@@ -192,6 +194,8 @@ export default function App() {
               <Scripts {...props} />
             ) : page === "ai" ? (
               <AI {...props} />
+            ) : page === "studio" ? (
+              <AgentStudio />
             ) : (
               <Settings {...props} />
             )}

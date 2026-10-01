@@ -1,0 +1,465 @@
+{
+  "schemaVersion": 1,
+  "id": "c6583e4a-3a3c-497b-afcc-828d9259f1e7",
+  "source": "workflow",
+  "title": "实机受控工具与条件分支验收",
+  "status": "completed",
+  "createdAt": "2026-10-01T00:39:20.899Z",
+  "updatedAt": "2026-10-01T00:39:25.924Z",
+  "target": {
+    "kind": "ssh",
+    "root": "/opt/sre-benchmark/cb5d8375-37c7-4898-beb8-7c73c44a8abc/7-C",
+    "hostId": "5f0606e7-9035-4eac-91a8-c80fb2023f6e",
+    "sudo": false
+  },
+  "permission": "autonomous",
+  "summary": "流程结束，已完成实际节点及独立验收要求",
+  "versions": {
+    "workflow": {
+      "id": "workflow.2be70f5e-e8eb-4b79-b81d-1f63ce5c9d21",
+      "version": "1.0.0",
+      "digest": "aa85a8aabce779331ace991dbd56f13b792666154c79e3f4032a484b335133e2"
+    },
+    "agents": {},
+    "skills": {},
+    "tools": [
+      {
+        "id": "custom.web-health",
+        "version": "1.0.0",
+        "digest": "bf05d200a732d7421f5d10a5ba3ddead6f34cd59efb0cc90fa2a0bc786386302"
+      },
+      {
+        "id": "verify_file",
+        "version": "1.0.0",
+        "digest": "2d1765ee90a26e1ae5a22df0ddad93f4aa72c1118ec503d674b22e4ae665996a"
+      }
+    ]
+  },
+  "events": [
+    {
+      "id": "94e37a91-bbc9-4e50-91da-e0b91c6c31d7",
+      "at": "2026-10-01T00:39:20.899Z",
+      "kind": "run.started",
+      "summary": "加载固定Workflow、Agent、Skill与Tool版本",
+      "data": {
+        "nodeId": "start"
+      }
+    },
+    {
+      "id": "8bcb5df4-ec4a-46f9-871c-4bff08dff73e",
+      "at": "2026-10-01T00:39:20.905Z",
+      "kind": "node.started",
+      "summary": "Start：start",
+      "data": {
+        "nodeId": "start"
+      }
+    },
+    {
+      "id": "b163c3a6-d10b-4fda-be10-a122989bb9c5",
+      "at": "2026-10-01T00:39:20.908Z",
+      "kind": "node.completed",
+      "summary": "start 已完成",
+      "data": {
+        "nodeId": "start",
+        "data": {
+          "output": {
+            "started": true
+          }
+        }
+      }
+    },
+    {
+      "id": "3f288588-2a9f-46dc-b9d8-633123be3882",
+      "at": "2026-10-01T00:39:20.912Z",
+      "kind": "node.started",
+      "summary": "Approval：approval",
+      "data": {
+        "nodeId": "approval"
+      }
+    },
+    {
+      "id": "4e472dc7-7953-4a2d-a1b9-a8d8775f6d9e",
+      "at": "2026-10-01T00:39:20.916Z",
+      "kind": "approval.requested",
+      "summary": "请审阅绑定的工具、参数、目标和风险",
+      "data": {
+        "nodeId": "approval",
+        "data": {
+          "nodeId": "health",
+          "approvalNodeId": "approval",
+          "call": {
+            "tool": "custom.web-health",
+            "arguments": {
+              "port": 18232
+            }
+          },
+          "digest": "f274218320aa549b709ced69fd09121209d5fe11dbcaf663c8f726fd62d624c8",
+          "risk": 57,
+          "assessment": {
+            "score": 57,
+            "level": "HIGH",
+            "factors": [
+              {
+                "id": "base",
+                "label": "Tool基础风险：隔离Web健康观测",
+                "delta": 60
+              },
+              {
+                "id": "write",
+                "label": "可能改变主机状态",
+                "delta": 0
+              },
+              {
+                "id": "target",
+                "label": "固定单一目标服务器",
+                "delta": 0
+              },
+              {
+                "id": "backup-unknown",
+                "label": "未取得匹配备份证据，不假定可回滚",
+                "delta": 0
+              },
+              {
+                "id": "reversibility",
+                "label": "无法保证完全可逆",
+                "delta": 0
+              },
+              {
+                "id": "verify",
+                "label": "已配置独立后置验收，不抵消严重风险",
+                "delta": -3
+              }
+            ],
+            "action": "confirm",
+            "reason": "当前权限或导入工具要求逐次审批",
+            "policy": "autonomous",
+            "version": "1.0.1"
+          },
+          "target": {
+            "kind": "ssh",
+            "root": "/opt/sre-benchmark/cb5d8375-37c7-4898-beb8-7c73c44a8abc/7-C",
+            "hostId": "5f0606e7-9035-4eac-91a8-c80fb2023f6e",
+            "sudo": false
+          }
+        }
+      }
+    },
+    {
+      "id": "3741ef9d-f686-42b7-bf5e-c5c8021fc108",
+      "at": "2026-10-01T00:39:21.931Z",
+      "kind": "approval.granted",
+      "summary": "已批准固定操作",
+      "data": {
+        "nodeId": "approval",
+        "data": {
+          "call": {
+            "tool": "custom.web-health",
+            "arguments": {
+              "port": 18232
+            }
+          },
+          "target": {
+            "kind": "ssh",
+            "root": "/opt/sre-benchmark/cb5d8375-37c7-4898-beb8-7c73c44a8abc/7-C",
+            "hostId": "5f0606e7-9035-4eac-91a8-c80fb2023f6e",
+            "sudo": false
+          }
+        }
+      }
+    },
+    {
+      "id": "f2f964e6-8469-4202-b482-3ef7bc3b86e0",
+      "at": "2026-10-01T00:39:21.937Z",
+      "kind": "node.started",
+      "summary": "Approval：approval",
+      "data": {
+        "nodeId": "approval"
+      }
+    },
+    {
+      "id": "e6a8e3c0-d2fd-4eb1-9497-efd084c223d5",
+      "at": "2026-10-01T00:39:21.940Z",
+      "kind": "node.completed",
+      "summary": "approval 已完成",
+      "data": {
+        "nodeId": "approval",
+        "data": {
+          "output": {
+            "approved": true,
+            "digest": "f274218320aa549b709ced69fd09121209d5fe11dbcaf663c8f726fd62d624c8"
+          }
+        }
+      }
+    },
+    {
+      "id": "e32461bf-dd88-4603-b5d6-5ba3f5590298",
+      "at": "2026-10-01T00:39:21.944Z",
+      "kind": "node.started",
+      "summary": "Tool：health",
+      "data": {
+        "nodeId": "health"
+      }
+    },
+    {
+      "id": "50643063-148c-443a-915c-95f3465e935e",
+      "at": "2026-10-01T00:39:21.948Z",
+      "kind": "risk.assessed",
+      "summary": "当前权限或导入工具要求逐次审批",
+      "data": {
+        "nodeId": "health",
+        "data": {
+          "score": 57,
+          "level": "HIGH",
+          "factors": [
+            {
+              "id": "base",
+              "label": "Tool基础风险：隔离Web健康观测",
+              "delta": 60
+            },
+            {
+              "id": "write",
+              "label": "可能改变主机状态",
+              "delta": 0
+            },
+            {
+              "id": "target",
+              "label": "固定单一目标服务器",
+              "delta": 0
+            },
+            {
+              "id": "backup-unknown",
+              "label": "未取得匹配备份证据，不假定可回滚",
+              "delta": 0
+            },
+            {
+              "id": "reversibility",
+              "label": "无法保证完全可逆",
+              "delta": 0
+            },
+            {
+              "id": "verify",
+              "label": "已配置独立后置验收，不抵消严重风险",
+              "delta": -3
+            }
+          ],
+          "action": "confirm",
+          "reason": "当前权限或导入工具要求逐次审批",
+          "policy": "autonomous",
+          "version": "1.0.1"
+        }
+      }
+    },
+    {
+      "id": "4530f1c8-e60f-4730-b5fb-10ce189b2c9f",
+      "at": "2026-10-01T00:39:21.963Z",
+      "kind": "task.submitted",
+      "summary": "远端作业已提交",
+      "data": {
+        "nodeId": "health",
+        "data": {
+          "taskId": "f5ef74ba-4801-4706-84f2-dcc961b2d824"
+        }
+      }
+    },
+    {
+      "id": "837e2a1d-559d-4c74-b436-13d6a9d6aefc",
+      "at": "2026-10-01T00:39:25.604Z",
+      "kind": "node.completed",
+      "summary": "health 已完成",
+      "data": {
+        "nodeId": "health",
+        "data": {
+          "output": {
+            "taskId": "f5ef74ba-4801-4706-84f2-dcc961b2d824",
+            "code": 0,
+            "stdout": "{\"healthy\": false, \"status\": 500, \"detail\": \"HTTP error observed\"}\n",
+            "status": "succeeded",
+            "data": {
+              "healthy": false,
+              "status": 500,
+              "detail": "HTTP error observed"
+            },
+            "toolVersion": "1.0.0",
+            "evidence": {
+              "toolId": "custom.web-health",
+              "usageId": "b2361fb6-f3b7-4fd5-aa36-5fa1975dbd32",
+              "taskId": "f5ef74ba-4801-4706-84f2-dcc961b2d824",
+              "observedAt": "2026-10-01T00:39:25.601Z"
+            }
+          },
+          "taskId": "f5ef74ba-4801-4706-84f2-dcc961b2d824"
+        }
+      }
+    },
+    {
+      "id": "0cfa6252-8d4e-4944-bf1c-57e0b5fbc26e",
+      "at": "2026-10-01T00:39:25.609Z",
+      "kind": "node.started",
+      "summary": "Condition：condition",
+      "data": {
+        "nodeId": "condition"
+      }
+    },
+    {
+      "id": "05604794-115e-409a-8ad5-833ce1f8ab48",
+      "at": "2026-10-01T00:39:25.611Z",
+      "kind": "node.completed",
+      "summary": "condition 已完成",
+      "data": {
+        "nodeId": "condition",
+        "data": {
+          "output": {
+            "result": true
+          }
+        }
+      }
+    },
+    {
+      "id": "81a3c142-80e7-4b28-866a-4a8cd10be7c4",
+      "at": "2026-10-01T00:39:25.615Z",
+      "kind": "node.started",
+      "summary": "Output：output",
+      "data": {
+        "nodeId": "output"
+      }
+    },
+    {
+      "id": "b0a9520b-8752-4b6b-8d7d-2cee5a7a721f",
+      "at": "2026-10-01T00:39:25.617Z",
+      "kind": "node.completed",
+      "summary": "output 已完成",
+      "data": {
+        "nodeId": "output",
+        "data": {
+          "output": {
+            "healthy": false,
+            "status": 500,
+            "detail": "HTTP error observed"
+          }
+        }
+      }
+    },
+    {
+      "id": "730a3a00-e011-444b-bc1e-5538e02f3e22",
+      "at": "2026-10-01T00:39:25.621Z",
+      "kind": "node.started",
+      "summary": "Verify：verify",
+      "data": {
+        "nodeId": "verify"
+      }
+    },
+    {
+      "id": "1f39e7f6-5ea3-496d-9589-ffe120fc8151",
+      "at": "2026-10-01T00:39:25.624Z",
+      "kind": "risk.assessed",
+      "summary": "符合已授权权限",
+      "data": {
+        "nodeId": "verify",
+        "data": {
+          "score": 5,
+          "level": "LOW",
+          "factors": [
+            {
+              "id": "base",
+              "label": "Tool基础风险：文件验收",
+              "delta": 5
+            },
+            {
+              "id": "read",
+              "label": "结构化只读/本地计划，无主机变更",
+              "delta": 0
+            }
+          ],
+          "action": "allow",
+          "reason": "符合已授权权限",
+          "policy": "autonomous",
+          "version": "1.0.1"
+        }
+      }
+    },
+    {
+      "id": "4d053e1f-34ca-4f25-b8d6-ee2148aca3d3",
+      "at": "2026-10-01T00:39:25.914Z",
+      "kind": "node.completed",
+      "summary": "verify 已完成",
+      "data": {
+        "nodeId": "verify",
+        "data": {
+          "output": {
+            "code": 0,
+            "data": {
+              "path": "/opt/sre-benchmark/cb5d8375-37c7-4898-beb8-7c73c44a8abc/7-C/config.json",
+              "bytes": 27,
+              "sha256": "2300f25543655d40262bef70025c3d9d47e64e842ac4252ae9b41908f7345e93",
+              "mode": "0o644",
+              "checks": {
+                "minBytes": true,
+                "expectText": true,
+                "syntax": true
+              },
+              "passed": true
+            },
+            "stdout": "{\"path\": \"/opt/sre-benchmark/cb5d8375-37c7-4898-beb8-7c73c44a8abc/7-C/config.json\", \"bytes\": 27, \"sha256\": \"2300f25543655d40262bef70025c3d9d47e64e842ac4252ae9b41908f7345e93\", \"mode\": \"0o644\", \"checks\": {\"minBytes\": true, \"expectText\": true, \"syntax\": true}, \"passed\": true}\n",
+            "stderr": "",
+            "evidence": {
+              "tool": "verify_file",
+              "hostId": "5f0606e7-9035-4eac-91a8-c80fb2023f6e",
+              "startedAt": "2026-10-01T00:39:25.633Z",
+              "observedAt": "2026-10-01T00:39:25.912Z"
+            },
+            "note": "只验证本次指定断言；语法正确或包已安装不代表业务运行正确。文件验收依赖/usr/bin/python3且最大1MiB。"
+          }
+        }
+      }
+    },
+    {
+      "id": "b30f1fa2-a5ad-4696-9072-3ad6458f4cfa",
+      "at": "2026-10-01T00:39:25.918Z",
+      "kind": "node.started",
+      "summary": "End：end",
+      "data": {
+        "nodeId": "end"
+      }
+    },
+    {
+      "id": "253d390a-5365-4cd8-b408-81bae80e8d69",
+      "at": "2026-10-01T00:39:25.920Z",
+      "kind": "node.completed",
+      "summary": "end 已完成",
+      "data": {
+        "nodeId": "end",
+        "data": {
+          "output": {
+            "verified": true
+          }
+        }
+      }
+    },
+    {
+      "id": "7a11259a-b896-4087-83ea-546b3451f032",
+      "at": "2026-10-01T00:39:25.924Z",
+      "kind": "run.completed",
+      "summary": "流程结束，已完成实际节点及独立验收要求",
+      "data": {
+        "nodeId": "end"
+      }
+    }
+  ],
+  "metrics": {
+    "toolCalls": 2,
+    "toolFailures": 0,
+    "modelCalls": 0,
+    "inputTokens": null,
+    "outputTokens": null,
+    "totalTokens": null,
+    "approvalRequests": 1,
+    "humanApprovals": 1,
+    "humanInterventions": 1,
+    "riskBlocks": 0,
+    "verificationFailures": 0,
+    "recoveryAttempts": 0,
+    "resumeSuccesses": 0,
+    "elapsedMs": 5025
+  },
+  "childTraceIds": []
+}

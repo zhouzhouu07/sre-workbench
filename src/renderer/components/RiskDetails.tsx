@@ -1,0 +1,3 @@
+import { Alert, Space, Tag } from "antd";
+import type { RiskAssessment } from "../../shared/risk";
+export default function RiskDetails({risk}:{risk:RiskAssessment}){return <Alert style={{marginBottom:12}} type={risk.action==="deny"?"error":risk.action==="confirm"?"warning":"info"} showIcon title={<Space><Tag color={risk.level==="CRITICAL"?"red":risk.level==="HIGH"?"orange":risk.level==="MEDIUM"?"gold":"green"}>{risk.score} / 100 · {risk.level}</Tag><span>{risk.reason}</span></Space>} description={<><div>策略：{risk.policy} · 规则 v{risk.version}</div>{risk.factors.map(f=><div key={f.id}>{f.delta>0?"+":""}{f.delta} · {f.label}</div>)}</>}/>;}

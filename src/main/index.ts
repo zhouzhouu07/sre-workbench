@@ -13,6 +13,9 @@ import { Backend } from "./core/backend";
 import { AIService } from "./features/ai";
 import { AgentService } from "./features/agent";
 import { FeatureService } from "./features/operations";
+import { WorkflowRuntime } from "./features/workflow-runtime";
+import { ExecutionTraceService } from "./features/execution-trace";
+import { BenchmarkService } from "./features/benchmark";
 import { errorMessage } from "./core/errors";
 import type { AppEvent } from "../shared/types";
 
@@ -21,6 +24,9 @@ let window: BrowserWindow | undefined;
 let core: Backend | undefined;
 let ai: AIService | undefined;
 let agent: AgentService | undefined;
+let workflow:WorkflowRuntime|undefined;
+let traces:ExecutionTraceService|undefined;
+let benchmark:BenchmarkService|undefined;
 let operations: FeatureService | undefined;
 let quitting = false;
 const emit = (event: AppEvent) => {
@@ -54,6 +60,9 @@ const start = async () => {
   await core.init();
   ai = new AIService(core.store, emit);
   agent = new AgentService(core, ai, emit);
+  workflow=new WorkflowRuntime(core,agent,()=>emit({type:"changed"}));
+  traces=new ExecutionTraceService(core);
+  benchmark=new BenchmarkService(core,agent,workflow,traces,()=>emit({type:"changed"}),()=>{app.relaunch();app.exit(0);});
   operations = new FeatureService(core, {
     gitPath: app.isPackaged
       ? join(process.resourcesPath, "git", "cmd", "git.exe")
@@ -80,7 +89,23 @@ const start = async () => {
         throw new Error("操作名无效");
       if (JSON.stringify(params ?? {}).length > 2_000_000)
         throw new Error("请求过大");
-      const value = method.startsWith("ai.session.")
+      const value = method.startsWith("studio.benchmark.")
+        ? await benchmark!.handle(method,params)
+        : method.startsWith("studio.trace.")
+        ? await traces!.handle(method,params)
+        : ["studio.workflow.run","studio.workflow.runs","studio.workflow.run.get","studio.workflow.approve","studio.workflow.input","studio.workflow.reconcile","studio.workflow.resume","studio.workflow.pause","studio.workflow.stop"].includes(method)
+        ? await workflow!.handle(method,params)
+        : method.startsWith("studio.workflow.")
+        ? await core!.workflowRegistry.handle(method,params)
+        : method==="studio.agent.run"
+        ? await workflow!.runAgent(params)
+        : method.startsWith("studio.agent.")
+        ? await core!.agentBuilder.handle(method,params)
+        : method.startsWith("studio.tool.")
+        ? await core!.toolRegistry.handle(method,params)
+        : method.startsWith("studio.skill.")
+        ? await core!.skillRegistry.handle(method,params)
+        : method.startsWith("ai.session.")
         ? await agent!.handle(method, params)
         : method.startsWith("ai.") || method.startsWith("provider.")
           ? await ai!.handle(method, params)
@@ -135,6 +160,8 @@ app.on("before-quit", (event) => {
   event.preventDefault();
   quitting = true;
   void (async () => {
+    benchmark?.close();
+    await workflow?.close();
     await agent?.close();
     ai?.close();
     await operations?.close();

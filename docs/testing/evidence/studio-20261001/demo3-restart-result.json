@@ -1,0 +1,37 @@
+{
+  "sourceRunId": "837b5877-dd94-445b-93dd-69cc5e0bff4b",
+  "caseId": "837b5877-dd94-445b-93dd-69cc5e0bff4b/11-C",
+  "root": "/opt/sre-benchmark/837b5877-dd94-445b-93dd-69cc5e0bff4b/11-C",
+  "status": "completed",
+  "source": "workflow",
+  "workflowId": "49d0f6fd-4c80-40e2-8054-c68b64777fdd",
+  "executionTaskIds": [
+    "5a945530-9a9e-4bbc-8cfb-a0f441084a5a"
+  ],
+  "injections": [
+    {
+      "at": "2026-10-01T01:17:24.779Z",
+      "kind": "backend-process-restart",
+      "taskId": "5a945530-9a9e-4bbc-8cfb-a0f441084a5a"
+    }
+  ],
+  "evidence": {
+    "at": "2026-10-01T01:17:54.071Z",
+    "stdout": "verified: single invocation\n\nPersistent Task evidence: [{\"id\":\"5a945530-9a9e-4bbc-8cfb-a0f441084a5a\",\"status\":\"succeeded\",\"exitCode\":0}]",
+    "stderr": "",
+    "code": 0
+  },
+  "backendRestartLog": [
+    "BENCHMARK_RUN 837b5877-dd94-445b-93dd-69cc5e0bff4b PID 42884",
+    "ACTUAL_BACKEND_RESTART 42884",
+    "RELAUNCH_BACKEND_AFTER_EXIT_75",
+    "BENCHMARK_RUN 837b5877-dd94-445b-93dd-69cc5e0bff4b PID 33424",
+    "ACTUAL_BACKEND_RESTART 33424",
+    "RELAUNCH_BACKEND_AFTER_EXIT_75",
+    "BENCHMARK_RUN 837b5877-dd94-445b-93dd-69cc5e0bff4b PID 30344",
+    "ACTUAL_BACKEND_RESTART 30344",
+    "RELAUNCH_BACKEND_AFTER_EXIT_75",
+    "BENCHMARK_RUN 837b5877-dd94-445b-93dd-69cc5e0bff4b PID 29308"
+  ],
+  "scope": "Actual backend process restarts; not a Windows reboot or full Electron GUI relaunch"
+}

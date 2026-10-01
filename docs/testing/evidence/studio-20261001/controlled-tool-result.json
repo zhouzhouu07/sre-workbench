@@ -1,0 +1,17 @@
+{
+  "id": "c6583e4a-3a3c-497b-afcc-828d9259f1e7",
+  "status": "completed",
+  "root": "/opt/sre-benchmark/cb5d8375-37c7-4898-beb8-7c73c44a8abc/7-C",
+  "unit": "srebench-cb5d8375-7-c.service",
+  "port": 18232,
+  "condition": {
+    "result": true
+  },
+  "observed": {
+    "healthy": false,
+    "status": 500,
+    "detail": "HTTP error observed"
+  },
+  "summary": "流程结束，已完成实际节点及独立验收要求",
+  "modelCalls": 0
+}

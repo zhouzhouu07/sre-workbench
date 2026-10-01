@@ -1,0 +1,15 @@
+{
+  "runId": "e000f858-be6a-464e-93f7-7a181fd92ff7",
+  "root": "/opt/sre-benchmark/9ae24db9-e108-4c04-8037-32259d7862fd/7-C",
+  "unit": "srebench-9ae24db9-7-c.service",
+  "port": 18230,
+  "status": "completed",
+  "condition": {
+    "result": false
+  },
+  "evidence": {
+    "stdout": "active\nverified: HTTP200 benchmark-ready\n",
+    "stderr": "",
+    "code": 0
+  }
+}

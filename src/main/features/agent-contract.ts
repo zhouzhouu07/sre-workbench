@@ -105,12 +105,12 @@ export function toolDecision(
       ? "confirm"
       : "allow";
 }
-export const agentReplySchema = z.discriminatedUnion("type", [
+export const createAgentReplySchema = (parser = parseTool) => z.discriminatedUnion("type", [
   z
     .object({
       type: z.literal("tool"),
       summary: z.string().min(1).max(5000),
-      call: z.unknown().transform(parseTool),
+      call: z.unknown().transform(parser),
     })
     .strict(),
   z
@@ -127,6 +127,7 @@ export const agentReplySchema = z.discriminatedUnion("type", [
     })
     .strict(),
 ]);
+export const agentReplySchema = createAgentReplySchema();
 export class AgentReplyError extends Error {}
 export const anthropicStepTool = {
   name: "submit_step",
@@ -154,7 +155,7 @@ export const anthropicStepTool = {
     additionalProperties: false,
   },
 };
-export function parseAnthropicStep(content: unknown) {
+export function parseAnthropicStep(content: unknown, parser = parseTool) {
   const calls = Array.isArray(content)
     ? content.filter((block) => block?.type === "tool_use")
     : [];
@@ -162,11 +163,11 @@ export function parseAnthropicStep(content: unknown) {
     throw new AgentReplyError(
       "本轮未执行任何工具。必须且只能调用一个 submit_step，将唯一下一步放入 input；不要并行调用或用文本模拟工具。等待本步结果后再继续。",
     );
-  return parseAgentReply(calls[0].input);
+  return parseAgentReply(calls[0].input, parser);
 }
-export function parseAgentReply(content: unknown) {
+export function parseAgentReply(content: unknown, parser = parseTool) {
   try {
-    return agentReplySchema.parse(
+    return createAgentReplySchema(parser).parse(
       typeof content === "string"
         ? JSON.parse(
             content
@@ -220,9 +221,10 @@ export const autonomousPrompt = `
 自主操作流程：新SSH任务第一步必须调用 host_resources {}、network_listeners {} 或 inspect_system {kind:"overview"} 获得成功观测。绝不能用 run_command 作为首个预检（即使命令只读也统一视为变更，会被拒绝）；工作目录不存在也不影响这三项只读工具。随后用 update_plan 保存执行计划和验收标准，随后连续执行。autonomous 已授权任务范围内的读写/安装/启动/修复，不要在每步询问用户；只在缺少必要输入、超出用户需求、权限或无法可靠确定操作结果时提问。
 update_plan {goal,steps:[{id,title,status:pending|running|completed|blocked,evidence:[真实步骤ID]}],acceptance:[具体验收标准],checks?:[{tool:"verify_file"|"verify_package",arguments:{对应工具参数}}]} 仅保存计划，不操作主机；执行完成的条目必须关联真实成功步骤。计划必须涵盖预检、实施、验证；大日志/旧步骤不在最近上下文时仍参考 executionHistory，不重复已完成变更。安装/批处理/文件任务应在首次变更前声明checks，之后更新计划必须原样保留，不能新增、删除或降低断言。验收参数依据用户结果要求，不选无关文件或包凑数。声明checks前确定实际最终目录结构：public/index.html与index.html是不同文件，后续write_file路径必须与计划一致。服务验收使用独立verify_service，不能把verify_service放入仅支持文件/包的checks。
 service_action {unit,action:start|restart|reload} 管理目标 systemd 服务；compose_check {path,project} 检查配置（path是配置文件，如compose.yaml，不是目录或点号）；compose_action {path,project,action:up|restart} 校验并启动/重启，固定本机 Docker socket。compose action、文件写入和任意命令都属于变更；只读权限禁止。Compose 文件和命令具备账号权限，工作目录不是沙箱。
-verify_service {unit?,url?,expectText?} 至少提供一个检查目标；检查服务 active 或回环 HTTP 2xx，expectText 可核实页面内容。verify_file {path,format:binary|text|json|python,minBytes?:默认1,expectText?,sha256?:64位十六进制,mode?:八进制权限字符串} 检查任务目录内普通文件，最大1MiB，依赖/usr/bin/python3；仅解析语法，不执行文件，Python语法检查不验证依赖可导入或程序行为。verify_package {name,version?} 检查RPM/DEB系统包已安装及可选精确版本（RPM为VERSION，不含RELEASE；DEB为完整Version），不覆盖pip/npm/源码安装。声明checks的任务须在最后变更后以完全相同参数逐项调用，全成功后finish.verification引用每项ID；无需为安装/批处理任务搭建无关HTTP服务。网站、博客、systemd或实际service_action/compose_action仍须额外服务/HTTP验证，文件/包不能替代业务验收。没有声明checks的旧任务保留原验收规则：任意run_command需服务/HTTP，纯文件工具任务可read_file/compose_check。finish不能引用变更前检查或变更命令本身。语法正确、包存在、服务active/HTTP200均不证明所有业务正确。
+verify_service {unit?,url?,expectText?} 至少提供一个检查目标；检查服务 active 或回环 HTTP 2xx，expectText 可核实页面内容。verify_file {path,exists?:默认true,format:binary|text|json|python,minBytes?:默认1,expectText?,sha256?:64位十六进制,mode?:八进制权限字符串} exists=false时只允许{path,exists:false}，验证路径确实不存在（包括不能有悬空符号链接）；不要用minBytes=0表示不存在，不能同时声明内容/语法/权限断言。默认检查任务目录内普通文件，最大1MiB，依赖/usr/bin/python3；仅解析语法，不执行文件，Python语法检查不验证依赖可导入或程序行为。verify_package {name,version?} 检查RPM/DEB系统包已安装及可选精确版本（RPM为VERSION，不含RELEASE；DEB为完整Version），不覆盖pip/npm/源码安装。声明checks的任务须在最后变更后以完全相同参数逐项调用，全成功后finish.verification引用每项ID；无需为安装/批处理任务搭建无关HTTP服务。网站、博客、systemd或实际service_action/compose_action仍须额外服务/HTTP验证，文件/包不能替代业务验收。没有声明checks的旧任务保留原验收规则：任意run_command需服务/HTTP，纯文件工具任务可read_file/compose_check。finish不能引用变更前检查或变更命令本身。语法正确、包存在、服务active/HTTP200均不证明所有业务正确。
+每轮executionGuidance.evidenceIndex列出本轮真实成功步骤，可复制完整UUID给计划evidence，不要猜测、截断或引用计划本身。executionGuidance.checks给出锁定验收的原样参数和最近状态；优先执行missing/failed检查。verificationIds来自后台同一验收规则，非空时可作为finish.verification，但仍须如实说明实际结果，不把预期超时说成脚本工作完成。列表为空时不反复提交finish，应补齐文件/服务独立检查。
 最终验收顺序：先完成所有 run_command（即使只是检查也视为可能变更），再调用 verify_service/http_check，随后可 update_plan 并 finish 引用新验收ID。不要在验收后用 run_command 再次检查；服务状态和监听端口使用 service_status/network_listeners。若必须再运行命令，则之后重新验收。收到验收拒绝时根据反馈执行缺失检查，不重复提交相同 finish。
-当前调用表示本轮任务仍待交付。用户需求已完成且有有效验收证据时，直接返回finish及证据ID，不要询问“是否可以结束/是否需要交付/还有什么要做”，也不要猜测存在未收到的外部反馈。此前历史中有助手回复不代表本轮已交付。question仅用于阻止继续执行的具体缺失输入或必须由用户决定的实际分歧；尚有步骤预算不意味着必须继续追加无关检查。
+当前调用表示本轮任务仍待交付。用户需求已完成且有有效验收证据时，直接返回finish及证据ID，不要询问“是否可以结束/是否需要交付/还有什么要做”，也不要猜测存在未收到的外部反馈。此前历史中有助手回复不代表本轮已交付。write_file内容在上下文中隐藏是节省空间，成功步骤的输出和证据仍有效；需要复核时直接read_file读取授权工作目录文件，无需再询问读取授权，不得因为看不到原content而重复写入。question仅用于阻止继续执行的具体缺失输入或必须由用户决定的实际分歧；尚有步骤预算不意味着必须继续追加无关检查。
 改已有配置前先读取并保存备份、检查当前内容，使用临时文件、语法校验与原子替换；记录备份路径与恢复命令。新项目使用独立目录和明确项目名，先查端口占用，不接管无关项目，不清空数据卷。安装依赖前识别发行版与已有运行时，使用非交互命令与合理超时，后台业务用服务管理或容器。
 失败先采集相关日志/状态，再修正最小范围；不能重复同一失败动作。超时/断线先核实是否已生效，不盲重放。只有备份/旧版本和恢复影响明确时才恢复；数据库迁移、删除数据没有通用自动回滚。无法验证或恢复失败时明确报告未完成并提问。最后更新计划，再交付访问地址、路径、服务/项目名、备份位置、验证证据及限制。
 `;

@@ -1,0 +1,16 @@
+{
+  "id": "custom.http-health",
+  "name": "自定义JSON健康接口",
+  "version": "1.0.0",
+  "description": "从选定SSH服务器查询固定回环JSON健康接口。请先准备对应接口再运行。",
+  "category": "诊断",
+  "type": "http",
+  "inputSchema": {"type":"object","properties":{},"additionalProperties":false},
+  "outputSchema": {"type":"object","properties":{"status":{"type":"string","enum":["ready","failed"]}},"required":["status"],"additionalProperties":false},
+  "permission": "readonly",
+  "risk": 10,
+  "timeout": 15,
+  "target": "ssh",
+  "verification": false,
+  "url": "http://127.0.0.1:18091/health"
+}

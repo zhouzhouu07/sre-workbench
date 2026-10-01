@@ -217,6 +217,8 @@ test("AI permission controls and exact approval create a real project file", asy
     await expect(
       page.getByRole("button", { name: "允许本次操作" }),
     ).toBeVisible();
+    await expect(page.getByText("48 / 100 · MEDIUM",{exact:true})).toBeVisible();
+    await expect(page.getByText("当前权限或导入工具要求逐次审批",{exact:true})).toBeVisible();
     await expect(
       readFile(path.join(workspace, "index.html")),
     ).rejects.toThrow();

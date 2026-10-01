@@ -12,6 +12,7 @@ import type { AgentPermission } from "../../shared/agent";
 import { renderAction, renderManagedWrite } from "./agent-execution";
 import { isSreTool, executeSreTool } from "./agent-sre-tools";
 import { executeVerification } from "./agent-verification";
+import { criticalTargetGuard } from "./agent-critical-paths";
 
 export class UncertainExecution extends Error {}
 const limit = 100000;
@@ -337,7 +338,7 @@ export class AgentTools {
     } else {
       const file = scopedPath(target.root, a.path as string, true);
       // Resolve symlinks on the server immediately before accessing the file.
-      const guard = `root=$(realpath -m -- ${q(target.root)}) || exit 1\ntarget=$(realpath -m -- ${q(file)}) || exit 1\ncase "$target" in "$root"|"\${root%/}"/*) ;; *) echo '路径超出工作目录' >&2; exit 1;; esac\n`;
+      const guard = `root=$(realpath -m -- ${q(target.root)}) || exit 1\ntarget=$(realpath -m -- ${q(file)}) || exit 1\ncase "$target" in "$root"|"\${root%/}"/*) ;; *) echo '路径超出工作目录' >&2; exit 1;; esac\n` + (isMutation(call) ? criticalTargetGuard : "");
       if (call.tool === "list_files")
         command =
           guard +

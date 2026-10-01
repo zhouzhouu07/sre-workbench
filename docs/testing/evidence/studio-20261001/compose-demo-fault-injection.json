@@ -1,0 +1,7 @@
+{
+  "root": "/opt/sre-benchmark/18a02e0a-186b-441e-84cf-db9e6376bbd7/3-C",
+  "project": "srebench-18a02e0a-3-c",
+  "port": 18700,
+  "taskId": "70334eb1-5ba7-4adb-9e63-2a3d1ec1104a",
+  "logs": " Container srebench-18a02e0a-3-c Recreate \n Container srebench-18a02e0a-3-c Recreated \n Container srebench-18a02e0a-3-c Starting \n Container srebench-18a02e0a-3-c Started \n Container srebench-18a02e0a-3-c Waiting \ncontainer srebench-18a02e0a-3-c is unhealthy\nExpected owned Compose startup failure injected\n"
+}

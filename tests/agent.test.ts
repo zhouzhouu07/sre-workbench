@@ -30,6 +30,72 @@ import {
 import type { AgentPermission, AgentSession } from "../src/shared/agent";
 
 const cleanups: Array<() => Promise<unknown>> = [];
+it("sends actual evidence IDs and fresh verification guidance to the model", async () => {
+  let seen: any;
+  const f = await fixture((context, turn) => {
+    if (turn === 0) return {type: "tool", summary: "检查文件", call: {tool: "read_file", arguments: {path: "result.txt"}}};
+    seen = context.executionGuidance;
+    return {type: "finish", summary: "已验证", verification: context.executionGuidance.verificationIds};
+  });
+  await writeFile(join(f.workspace, "result.txt"), "ready");
+  const s = await f.start("readonly");
+  const done = await f.until(s.id, s => s.status === "completed");
+  expect(seen.evidenceIndex).toContainEqual({id: done.steps[0].id, tool: "read_file", summary: "检查文件"});
+  expect(seen.verificationIds).toEqual([done.steps[0].id]);
+});
+it("rejects an out-of-scope planned file check before it can be locked by a mutation", async () => {
+  const f = await fixture((_context, turn) => turn === 0 ? {
+    type: "tool", summary: "记录计划", call: {tool: "update_plan", arguments: {goal: "验收服务", steps: [{id: "verify", title: "验证", status: "pending", evidence: []}], acceptance: ["文件合法"], checks: [{tool: "verify_file", arguments: {path: "../outside.service", expectText: "ready"}}]}},
+  } : {type: "question", summary: "修改验收范围"});
+  const s = await f.start();
+  const done = await f.until(s.id, s => s.status === "awaiting_input");
+  expect(done.plan).toBeUndefined();
+  expect(done.steps[0].status).toBe("rejected");
+  expect(done.steps[0].output).toContain("工作目录");
+});
+it("allows a numeric file assertion matching a short credential without allowing credential commands", async () => {
+  const f = await fixture((_context, turn) => turn === 0 ? {
+    type: "tool", summary: "记录计数验收", call: { tool: "update_plan", arguments: { goal: "检查执行次数", steps: [{id: "verify", title: "核对计数", status: "pending", evidence: []}], acceptance: ["执行一次"], checks: [{tool: "verify_file", arguments: {path: "count.txt", expectText: "1"}}] } },
+  } : turn === 1 ? {
+    type: "tool", summary: "检查执行次数", call: { tool: "verify_file", arguments: { path: "count.txt", expectText: "1" } },
+  } : turn === 2 ? {
+    type: "tool", summary: "尝试凭据命令", call: { tool: "run_command", arguments: { command: "printf password=1" } },
+  } : { type: "question", summary: "已记录" });
+  f.core.store.setSecret("1");
+  await writeFile(join(f.workspace, "count.txt"), "1");
+  const execute = vi.spyOn(f.core.toolRegistry, "execute").mockResolvedValue({ code: 0, stdout: "verified" });
+  const s = await f.start();
+  const done = await f.until(s.id, s => s.status === "awaiting_input");
+  expect(done.steps[0]).toMatchObject({ status: "succeeded", call: { arguments: {checks: [{arguments: {expectText: "1"}}]} } });
+  expect(done.steps[1]).toMatchObject({ status: "succeeded", call: { arguments: { expectText: "1" } } });
+  expect(done.steps[2]).toMatchObject({ status: "rejected" });
+  expect(execute).toHaveBeenCalledTimes(1);
+});
+it.each(["openai","anthropic"] as const)("records actual %s usage without persisting hidden model text",async protocol=>{
+ const f=await fixture(()=>protocol==="anthropic"?{content:[{type:"thinking",thinking:"hidden-test-reasoning"},{type:"tool_use",id:"step",name:"submit_step",input:{type:"question",summary:"需要任务范围"}}],usage:{input_tokens:12,output_tokens:7}}:{type:"question",summary:"需要任务范围"},protocol,{prompt_tokens:12,completion_tokens:7,total_tokens:19});
+ const s=await f.start("advice");await f.until(s.id,s=>s.status==="awaiting_input");const records=f.core.store.list<any>("modelUsage");expect(records).toHaveLength(1);expect(records[0]).toMatchObject({inputTokens:12,outputTokens:7,totalTokens:19,status:"succeeded"});expect(JSON.stringify(records)).not.toContain("hidden-test-reasoning");
+});
+it("runs a saved Agent definition and refuses model tools outside its immutable whitelist",async()=>{
+ const f=await fixture(()=>({type:"tool",summary:"尝试越过白名单",call:{tool:"read_file",arguments:{path:"x"}}}));
+ f.core.store.put("hosts",{id:"builder-host",name:"test",address:"192.0.2.13",port:22,username:"root",fingerprint:"test",credentialId:"",authType:"password",group:"",tags:[]});
+ const a=f.core.agentBuilder.save({name:"受限Agent",description:"测试",icon:"",category:"SRE",providerId:"model",permissionCeiling:"readonly",riskPolicy:"cautious",toolIds:["host_resources"],skillIds:[],targetHostIds:["builder-host"],rootPrefix:"/",maxSteps:5,maxRuntimeSeconds:30,acceptanceCriteria:["实际证据"],enabled:true});
+ const exec=vi.spyOn(AgentTools.prototype,"execute");try{
+ const s=await f.agent.startDefinition({id:a.id,target:{kind:"ssh",hostId:"builder-host",root:"/",sudo:false},permission:"readonly",instruction:"检查环境"}) as AgentSession;
+ f.core.agentBuilder.remove(a.id);const done=await f.until(s.id,s=>s.status==="failed");expect(exec).not.toHaveBeenCalled();expect(done.agentSnapshot?.definition.id).toBe(a.id);expect(done.toolPins?.map(t=>t.id)).toEqual(["host_resources"]);
+ }finally{exec.mockRestore();}
+});
+it("loads structured skill snapshots into the model while later registry changes do not alter the task",async()=>{
+ let prompt="";
+ const f=await fixture((_context,_turn,request)=>{prompt=request.messages[0].content;return {type:"question",summary:"请提供需要巡检的服务名"};});
+ f.core.store.put("hosts",{id:"skill-host",name:"test",address:"192.0.2.12",port:22,username:"root",fingerprint:"test",credentialId:"",authType:"password",group:"",tags:[]});
+ const s=await f.agent.handle("ai.session.start",{providerId:"model",permission:"readonly",target:{kind:"ssh",hostId:"skill-host",root:"/",sudo:false},instruction:"巡检指定服务",skillIds:["linux-inspection"],maxSteps:5}) as AgentSession;
+ await f.until(s.id,s=>s.status==="awaiting_input");
+ expect(prompt).toContain("建议验收");expect(prompt).toContain("Linux 环境巡检");
+ f.core.skillRegistry.enable("linux-inspection",false);
+ const saved=await f.agent.handle("ai.session.get",{id:s.id}) as AgentSession;
+ expect(saved.skills?.[0].skillVersion).toBe("1.0.1");expect(saved.skills?.[0].toolDependencies?.length).toBeGreaterThan(0);
+ expect(saved.skills?.[0].instructionsSnapshot).toContain("只读");
+});
 it.each([false, true])(
   "uses locked typed checks but retains service verification after service actions (%s)",
   async (serviceAction) => {
@@ -167,6 +233,7 @@ async function fixture(
     request: any,
   ) => unknown | Promise<unknown>,
   protocol: "openai" | "anthropic" = "openai",
+  usage?:Record<string,number>,
 ) {
   const root = await directory();
   let turn = 0;
@@ -184,6 +251,7 @@ async function fixture(
               ? reply
               : {
                   choices: [{ message: { content: JSON.stringify(reply) } }],
+                  usage,
                 },
           ),
         );

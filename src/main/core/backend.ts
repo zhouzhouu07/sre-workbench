@@ -14,6 +14,10 @@ import { TaskManager } from "./tasks";
 import { shellQuote as q } from "./safety";
 import { metricsCommand } from "./metrics";
 import { errorMessage } from "./errors";
+import { ToolRegistry } from "../features/tool-registry";
+import { SkillRegistry } from "../features/skill-registry";
+import { AgentBuilder } from "../features/agent-builder";
+import { WorkflowRegistry } from "../features/workflow-registry";
 
 const id = z.string().min(1).max(100),
   text = z.string().min(1).max(200);
@@ -71,6 +75,10 @@ export class Backend {
   readonly store: Store;
   readonly ssh: SSHManager;
   readonly tasks: TaskManager;
+  readonly toolRegistry: ToolRegistry;
+  readonly skillRegistry: SkillRegistry;
+  readonly agentBuilder: AgentBuilder;
+  readonly workflowRegistry: WorkflowRegistry;
   private probes = new Map<
     string,
     { fingerprint: string; identity: string; expires: number }
@@ -80,9 +88,14 @@ export class Backend {
     this.store = new Store(options.dataDir, options.encrypt, options.decrypt);
     this.ssh = new SSHManager(this.store, options.emit);
     this.tasks = new TaskManager(this.store, this.ssh, options.emit);
+    this.toolRegistry = new ToolRegistry(this, () => options.emit({type:"changed"}));
+    this.skillRegistry = new SkillRegistry(this, () => options.emit({type:"changed"}));
+    this.agentBuilder = new AgentBuilder(this, () => options.emit({type:"changed"}));
+    this.workflowRegistry = new WorkflowRegistry(this, () => options.emit({type:"changed"}));
   }
   async init(): Promise<void> {
     await this.store.init();
+    this.toolRegistry.init();
     this.tasks.init();
   }
   private changed(): void {

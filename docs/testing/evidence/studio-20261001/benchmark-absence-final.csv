@@ -1,0 +1,4 @@
+"scenario","mode","phase","success","claimedSuccess","incorrectSuccessClaim","verificationCode","sourceId","steps","toolCalls","toolFailures","modelCalls","inputTokens","outputTokens","totalTokens","approvalRequests","humanApprovals","humanInterventions","riskBlocks","verificationFailures","recoveryAttempts","resumeSuccesses","elapsedMs"
+"12","A","completed","true","true","false","0","d98ed285-518e-4f85-93a4-8f482d26f278","10","9","1","10","67551","3197","70748","0","0","0","0","0","0","0","23268"
+"12","B","completed","true","true","false","0","650bf2d1-d8a5-4f53-a63e-5426fc296288","11","10","1","11","79095","4095","83190","0","0","0","0","0","0","0","30846"
+"12","C","completed","true","true","false","0","3e75534e-4c3b-4836-8a2c-30fc642a4a3b","8","8","1","8","41693","2197","43890","0","0","0","0","0","0","0","18956"

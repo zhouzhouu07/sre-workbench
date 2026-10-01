@@ -1,0 +1,16 @@
+{
+  "id": "custom.uptime",
+  "name": "自定义主机运行时间",
+  "version": "1.0.0",
+  "description": "通过选定SSH服务器的/proc/uptime返回系统运行秒数。演示受控脚本包。",
+  "category": "诊断",
+  "type": "remote-script",
+  "inputSchema": {"type":"object","properties":{},"additionalProperties":false},
+  "outputSchema": {"type":"object","properties":{"uptimeSeconds":{"type":"number","minimum":0}},"required":["uptimeSeconds"],"additionalProperties":false},
+  "permission": "readonly",
+  "risk": 10,
+  "timeout": 30,
+  "target": "ssh",
+  "verification": false,
+  "script": "run.sh"
+}
