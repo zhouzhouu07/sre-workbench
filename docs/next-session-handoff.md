@@ -2,7 +2,48 @@
 
 ## 最新正式发行交接（优先阅读）
 
-2026-10-01：用户已明确授权 v0.4.0 正式发行；七模块、发行阻断修复、238项单元/14项Electron/typecheck/build、最终安装包16项启动验证和内容扫描均通过。当前进入提交、标签和GitHub附件核验阶段，公开结果以 [发布验收](testing/2026-10-01-v0.4.0-release.md) 为准。本轮只做发行及交接，不继续开发新产品功能。
+### 当前版本
+
+已公开正式版 [v0.4.0](https://github.com/zhouzhouu07/sre-workbench/releases/tag/v0.4.0)，源码Commit **3ed4ecb73a129cb8d99306449cf0fde20807d220**，annotated Tag v0.4.0，分支feat/sre-desktop；旧v0.3.0保留。本次明确发行授权已完成，不授权后续自动上传。后续文档收尾提交不改变发行标签及二进制源码。
+
+### 已完成能力
+
+- Tool Registry / Tool Center：21项内置工具、受控Remote Script/回环HTTP导入、Schema、启停、版本和调用记录。
+- Skill Package / Skill Center：4项SRE内置技能、导入/升级、依赖、版本快照，不能提升权限。
+- Agent Builder：模型引用、技能、白名单、目标范围、四档权限上限与预算。
+- Workflow Studio：12类节点、子Agent、条件/审批/有限重试/等待、持久检查点。
+- Risk Engine：1.0.2后端评分、原权限取更严格限制、严重风险拒绝；write_file/make_directory1.0.1覆盖相对路径及realpath关键路径。
+- Execution Trace / Versioning：工具、Risk、审批、验收、恢复、实际接口用量、JSON/Markdown导出；运行锁定版本。
+- Competition Benchmark：12场景、A/B/C、隔离故障注入、独立远端验收与JSON/CSV/Markdown导出。
+- 原主机管理、部署、监控和SSH AI会话保留；verify_file1.1.1严格不存在断言，update_plan1.1.0，Task恢复先核实、不自动重放未知变更。
+
+### 实测状态
+
+最终238项单元、14项Electron、typecheck/build通过；新增7项发行阻断回归，只读审查复跑57项通过且无剩余明确P1/P2。实际最终win-unpacked程序隔离启动16项检查通过，页面错误0、SSH/模型调用0，ASAR和完整resources扫描无真实凭据或测试数据库。
+
+36非接口阻塞样本：A10/12、B8/12、C10/12，恢复3/4、3/4、4/4，误报成功0；定向12例2/4、4/4、4/4；最终超时三例10/11/8步，执行计数1、结果文件不存在、唯一Task。旧实机Risk1.0.1，不冒充新1.0.2实机得分。Web自愈成功；Compose部署/修复成功（修复含一次人工续接）；后台进程重启子Agent恢复成功，计数1。5项Rocky验证边界通过，模型调用0。失败和13个HTTP402记录保留。
+
+三附件服务端state/size/SHA256已一致；公开页面/latest网页与最终匿名latest API均HTTP200。安装包匿名HEAD200和Range GET206/EXE文件头验证通过；blockmap/SHA256SUMS完整匿名下载摘要一致。完整EXE整流下载在当前连接停滞，未宣称完整匿名摘要验收。详细过程见 [发布验收](testing/2026-10-01-v0.4.0-release.md)。
+
+### Known Issues
+
+通用Agent可能生成与实际产物不一致的验收参数而自主收尾失败；模型总结不能代替Evidence。小样本及模型随机性不支持统计显著性或总体稳定优劣结论。保留Vite大分块提示，安装包无商业代码签名。
+
+### 架构边界
+
+Electron受信主进程IPC、React/Ant Design/TypeScript、sql.js records版本化JSON和safeStorage secrets。Agent/Workflow复用ToolRegistry→AgentTools→TaskManager，远端持久systemd任务，不加载第三方Windows主进程插件。任意Shell工作目录不是沙箱，规则Risk不是操作系统隔离；无通用事务回滚。主要实测Rocky9.4，DEB/其他发行版、Windows重启/完整Electron重开、VM掉电组合、覆盖升级尚未完整验证。不含移动端、Kubernetes、多租户、MCP/在线市场或通用桌面/浏览器控制。
+
+### 未发布修改与测试资源
+
+产品源码修改已全部包含在v0.4.0，未发布产品修改0；发行后仅收尾本文、启动提示词、验收报告和统一进程日志，以独立文档提交推送，交付前核对分支与远端一致及Git工作区干净。最新文档Commit以git log为准，源码Tag保持3ed4ecb。忽略的.tools/dist/release/test-results/vendor/git/待清理文件继续保留，不视为待提交源码。
+
+测试服务器留有旧监控/博客/Compose和/opt/sre-benchmark隔离资源，不清空容器/数据卷、不全局prune、不重置Grafana；新测试先核验主机身份与资源归属，新建隔离样本，不重放未知任务或并发写同一测试数据库。地址/账号从已保存主机或用户当轮输入取得，凭据不得写入文档或Git。模型在「设置」兼容模型API配置，保存引用及加密密钥，未获当轮授权不自行消耗模型或变更远端。
+
+### 后续开发方向
+
+稳定性 > 可用性 > 界面体验 > 新功能数量。P0优先Bug/异常/恢复/安全/误报成功/Workflow/Risk/Approval/Tool和Skill边界；P1完善错误、加载、空状态、按钮、配置验证和恢复入口；P2渐进精简UI、产品化、独立重复Benchmark及移动端规划。本旧对话到发行交接结束，不开展下一阶段开发。
+
+UI保持Ant Design体系，倾向成熟桌面SRE/DevOps：紧凑Toolbar、Table/Split Pane/Tabs、合理密度、统一字体/间距、Drawer次级设置、关键操作Modal、工程风格Trace。避免渐变/Glow/卡片堆叠/过多圆角和Badge/营销标题/无意义图标和emoji/巨型数字/过度留白/装饰动画和图表；不重做整套软件。
 
 新对话完整启动提示词：[codex-next-chat-prompt.md](codex-next-chat-prompt.md)。下方“未提交／未打包／禁止上传”等内容均为当时阶段的历史状态，不能覆盖本节最新授权及验收。
 

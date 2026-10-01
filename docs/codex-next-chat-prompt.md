@@ -1,10 +1,11 @@
 请继续现有项目 **SRE Workbench / SRE Agent Studio**，工作目录 `D:\SRE自动化运维`。这是 Windows 中文桌面 SRE 运维软件，通过 SSH 管理 Linux；不是新建项目。本文件可以整段复制到新 Codex 对话。
 
-当前发行目标为 **v0.4.0**，分支 **feat/sre-desktop**，仓库 https://github.com/zhouzhouu07/sre-workbench 。本文件在发行验证期间生成；交付前会更新已发布状态和准确源码 Commit。先用 `git status --short`、`git log -3 --oneline` 和 `git rev-parse 'v0.4.0^{commit}'` 核对实际状态，保留未提交修改，不根据记忆猜测。
+最新正式发行 **v0.4.0**，源码 Commit **3ed4ecb73a129cb8d99306449cf0fde20807d220**，Tag **v0.4.0**，分支 **feat/sre-desktop**，仓库 https://github.com/zhouzhouu07/sre-workbench ，Release https://github.com/zhouzhouu07/sre-workbench/releases/tag/v0.4.0 。发行后还有交接文档收尾提交，未发布产品修改0。先用 `git status --short`、`git log -3 --oneline` 和 `git rev-parse 'v0.4.0^{commit}'` 核对实际状态，保留未提交修改，不根据记忆猜测。
 
 先阅读：
+
 1. `docs/next-session-handoff.md` 的最新正式交接；
-2. `README.md`、`docs/releases/v0.4.0.md` 和发行验收报告；
+2. `README.md`、`docs/releases/v0.4.0.md` 和 `docs/testing/2026-10-01-v0.4.0-release.md`；
 3. `docs/user-guide.md`、`docs/competition-agent-studio.md`；
 4. `docs/testing/competition-agent-benchmark.md` 及 `docs/testing/evidence/studio-20261001` 最新 JSON／CSV／Markdown；
 5. 根目录 `项目进程.md`。历史日志只用于追溯，不能覆盖最新状态。监控问题已修复，不重复开发；必要时再读 9 月 20 日监控修复与 9 月 19 日 Rocky 联调记录。
@@ -15,7 +16,7 @@
 
 关键源码：`src/main/core`（Backend、Store、SSH、Task、安全确认）；`src/main/features`（agent、agent-tools、agent-execution、agent-verification、agent-critical-paths、tool-registry、skill-registry、agent-builder、workflow-*、risk-engine、execution-trace、benchmark）；`src/shared`（契约）；`src/renderer/pages`（平台及 Studio 页面）；`tests` 和 `tests/e2e`；`examples/tool-packages` 与 `examples/skill-packages`。
 
-本轮发行回归实际结果：23 个文件 **238 项单元测试**、**14 项 Electron 回归**、typecheck、production build 全部通过。原 231 项增加 7 项发行安全／恢复回归，没有删测试或放宽断言。最后只读审查未发现剩余明确 P1/P2，独立复跑 4 文件 57 项通过。Risk **1.0.2**；verify_file **1.1.1**；update_plan **1.1.0**；write_file／make_directory **1.0.1**。包内启动验证和发行摘要以验收报告为准。
+本轮发行回归实际结果：23 个文件 **238 项单元测试**、**14 项 Electron 回归**、typecheck、production build 全部通过。原 231 项增加 7 项发行安全／恢复回归，没有删测试或放宽断言。最后只读审查未发现剩余明确 P1/P2，独立复跑 4 文件 57 项通过。Risk **1.0.2**；verify_file **1.1.1**；update_plan **1.1.0**；write_file／make_directory **1.0.1**。最终实际安装包隔离启动16项检查通过，页面错误0、SSH/模型调用0。EXE151911275字节，SHA256 `d34e7ab6337a91399de89b0bb79cd665945e4706de871156cb0b0ea07d29b19f`；Release三个附件state/size/digest一致，包内无真实凭据或测试数据库。匿名Release及最终latest API200，EXE HEAD200/Range GET206及MZ文件头通过，blockmap/SHA256SUMS完整下载摘要一致；完整EXE整流下载在本次网络停滞，未宣称完整匿名摘要验收。详情见验收报告。
 
 真实实验数据：36 个非接口阻塞样本，A 通用 Agent **10/12**、B SRE Skill **8/12**、C Studio **10/12**；误报成功均 **0**，恢复场景分别 **3/4、3/4、4/4**。固定选取补测场景 1–5 + 原场景 6–12，不按最好结果筛选，保留 13 个 HTTP402 阻塞及全部失败记录。定向 12 例为 **2/4、4/4、4/4**；最终 verify_file1.1.1 超时三例分别 **10、11、8 步**，计数 1、结果文件不存在、唯一持久 Task，没有重复执行；这是预期超时状态核实，不是业务脚本成功。旧实机使用 Risk1.0.1，不能冒充发行修复后的1.0.2实机得分。样本小、模型随机，不具统计显著性，不能宣称 Studio 总体稳定优于通用 Agent。
 
@@ -30,6 +31,7 @@
 用户偏好：中文简明沟通，围绕目标持续执行，普通可逆工程选择自行处理，不频繁确认。每项操作完成后追加同一个根目录 **项目进程.md**，不另建日志；`待清理文件/` 是归档目录，不是源码，不删除历史资源和证据。优先读取实际文件和测试输出；保留未提交修改。新一轮任务应先汇报状态，再按当轮指定目标做必要工作。发布规则：本次0.4.0发行授权已经完成，**不自动授权下一版本**；只有用户明确要求上传／发行时才提交发行源码、推送、打标签或发布。禁止 force push、覆盖已有Tag或改写旧Release；每次发行均需全量回归、真实包内启动、敏感扫描、附件服务端digest及匿名下载核验。
 
 下一阶段核心是 **稳定性 > 可用性 > 界面体验 > 新功能数量**，先处理用户当轮指定的问题，不因交接材料自行堆新功能：
+
 - P0：Bug、异常状态、恢复、安全边界、误报成功、Workflow状态、Risk／Approval绕过、Tool／Skill安装边界；计划路径与实际产物一致性、JSON字段级断言只是候选方向，先证明需求与失败。
 - P1：交互、错误反馈、加载／空状态、按钮状态、配置验证和异常恢复入口。
 - P2：渐进视觉优化，以及独立重复Benchmark、产品化和移动端后续规划。
