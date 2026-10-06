@@ -1,0 +1,33 @@
+{
+  "id": 404248880,
+  "url": "https://github.com/zhouzhouu07/sre-workbench/releases/tag/v0.4.1",
+  "tag": "v0.4.1",
+  "commit": "096a6ac48dd5940c516be97c10a0af4485dffcdc",
+  "publishedAt": "2026-10-06T02:32:09Z",
+  "draft": false,
+  "prerelease": false,
+  "reusedVerifiedBuild": true,
+  "assets": [
+    {
+      "name": "SHA256SUMS.txt",
+      "size": 201,
+      "digest": "sha256:5d3d62ab5505613b017553edaaa08c4280a98cbf996054ec648bfb1b95d3afd4",
+      "state": "uploaded",
+      "url": "https://github.com/zhouzhouu07/sre-workbench/releases/download/v0.4.1/SHA256SUMS.txt"
+    },
+    {
+      "name": "SRE.Workbench.Setup.0.4.1.exe",
+      "size": 151917776,
+      "digest": "sha256:9c8c41ac45f7cc20c2d22fb90e64ce1efbe2b08d885faf52787487de5d39e508",
+      "state": "uploaded",
+      "url": "https://github.com/zhouzhouu07/sre-workbench/releases/download/v0.4.1/SRE.Workbench.Setup.0.4.1.exe"
+    },
+    {
+      "name": "SRE.Workbench.Setup.0.4.1.exe.blockmap",
+      "size": 158991,
+      "digest": "sha256:165910498af5dc20faa7a869f19af60962fa7f85dffd20e3bbe8774c6b978a58",
+      "state": "uploaded",
+      "url": "https://github.com/zhouzhouu07/sre-workbench/releases/download/v0.4.1/SRE.Workbench.Setup.0.4.1.exe.blockmap"
+    }
+  ]
+}

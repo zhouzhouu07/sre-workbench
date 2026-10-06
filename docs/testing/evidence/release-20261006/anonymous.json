@@ -1,0 +1,61 @@
+{
+  "at": "2026-10-06T02:33:02.989Z",
+  "authentication": false,
+  "checks": [
+    {
+      "name": "releasePage",
+      "status": 200,
+      "tagReached": true
+    },
+    {
+      "name": "latestPage",
+      "status": 200,
+      "tagReached": true
+    },
+    {
+      "name": "releaseAPI",
+      "status": 200,
+      "tag": "v0.4.1",
+      "draft": false,
+      "prerelease": false,
+      "assetsMatch": true
+    },
+    {
+      "name": "latestAPI",
+      "status": 200,
+      "tag": "v0.4.1",
+      "draft": false,
+      "prerelease": false,
+      "assetsMatch": true
+    },
+    {
+      "name": "SHA256SUMS.txt",
+      "status": 200,
+      "bytes": 201,
+      "sizeMatch": true,
+      "digestMatch": true
+    },
+    {
+      "name": "installerResponse",
+      "status": 200,
+      "length": 151917776,
+      "sizeMatch": true
+    },
+    {
+      "name": "installerRange",
+      "status": 206,
+      "bytes": 1024,
+      "contentRange": "bytes 0-1023/151917776",
+      "MZ": true
+    },
+    {
+      "name": "SRE.Workbench.Setup.0.4.1.exe.blockmap",
+      "status": 200,
+      "bytes": 158991,
+      "sizeMatch": true,
+      "digestMatch": true
+    }
+  ],
+  "fullInstallerDownload": false,
+  "pass": true
+}

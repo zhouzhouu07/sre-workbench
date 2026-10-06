@@ -2,12 +2,12 @@
 
 ## 2026-10-06 v0.4.1 正式发行
 
-- 用户本轮明确授权提交、推送与GitHub发行，并要求不重复此前测试，直接使用已验收安装包。源码分支feat/sre-desktop，版本0.4.1，标签v0.4.1；发行页 https://github.com/zhouzhouu07/sre-workbench/releases/tag/v0.4.1 。
+- 用户本轮明确授权提交、推送与GitHub发行，并要求不重复此前测试，直接使用已验收安装包。已正式发布，源码Commit `096a6ac48dd5940c516be97c10a0af4485dffcdc`，分支feat/sre-desktop，版本0.4.1，标签v0.4.1；发行页 https://github.com/zhouzhouu07/sre-workbench/releases/tag/v0.4.1 。
 - 原10月3日101项构建输入与当前产品源码逐项SHA256一致；EXE151917776字节，SHA256 `9c8c41ac45f7cc20c2d22fb90e64ce1efbe2b08d885faf52787487de5d39e508`。采用原256单元、17Electron、typecheck/build及18项包内验收，本轮没有重测或重编译；包内文档保留原构建日状态。
 - 本轮只发布桌面源码、文档及EXE/blockmap/SHA256SUMS；Android、AIC竞赛工作目录、录屏助手和加密profile留在本地，不进入安装包。旧Tag、旧Release、失败记录和资源保留。
-- 实际提交、附件state/size/digest与匿名下载结论见 [正式发行核验](testing/2026-10-06-v0.4.1-release.md)；不要把准备中的说明当成服务端验证结果。后续版本仍需用户明确授权，不自动发布。
+- 三附件uploaded、size/digest一致；匿名Release/latest网页与API200，EXE响应头200及实际Range206/MZ通过，blockmap/SHA256SUMS完整下载摘要一致；未下载完整EXE，不宣称匿名整包摘要通过。详见 [正式发行核验](testing/2026-10-06-v0.4.1-release.md)。发行后文档收尾提交不改Tag/二进制，后续版本仍需用户明确授权。
 
-## 2026-10-03 桌面 v0.4.1 本地安装包（当前状态）
+## 2026-10-03 桌面 v0.4.1 本地安装包（历史打包记录）
 
 - 用户明确反馈监控测试全部通过及已收到邮件，随后授权本地打包新版本。用户侧验收闭合；原现场端口错误未由工程取证复现，不能编造根因。
 - package版本0.4.1；基线HEAD仍8e5d091，feat/sre-desktop，当前所有既有源码修改保留未提交。正式GitHub Release与v0.4.0标签不变；本轮未提交、推送、打标签或上传发行。

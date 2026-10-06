@@ -1,0 +1,10 @@
+{
+  "checkedAt": "2026-10-06T02:34:12.226Z",
+  "commit": "096a6ac48dd5940c516be97c10a0af4485dffcdc",
+  "tag": "v0.4.1",
+  "inputs": 101,
+  "sourceInventorySha256": "64278fa1c3bc99467ecac139817fd96036b597bb64704096bc300dcc302eebff",
+  "gitLineEndingNormalization": true,
+  "mismatches": [],
+  "reusedVerifiedBuild": true
+}

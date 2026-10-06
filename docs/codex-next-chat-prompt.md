@@ -1,6 +1,6 @@
 请继续现有项目 **SRE Workbench / SRE Agent Studio**，工作目录 `D:\SRE自动化运维`。这是 Windows 中文桌面 SRE 运维软件，通过 SSH 管理 Linux；不是新建项目。本文件可以整段复制到新 Codex 对话。
 
-**2026-10-06更新：v0.4.1转为正式桌面发行**，分支feat/sre-desktop，Tag v0.4.1，发行页 https://github.com/zhouzhouu07/sre-workbench/releases/tag/v0.4.1 。按用户指示使用10月3日已验收包，不重复回归/重编译；101项构建输入及二进制SHA256一致，原256单元/17Electron/18包内检查结果保留。本轮具体commit、上传/匿名下载状态以docs/testing/2026-10-06-v0.4.1-release.md和最新交接为准；下方0.4.0及本地阶段为历史追溯。Android/AIC/录屏助手保留本地，不自动发布后续版本。
+**2026-10-06更新：v0.4.1已正式桌面发行**，源码Commit `096a6ac48dd5940c516be97c10a0af4485dffcdc`，分支feat/sre-desktop，Tag v0.4.1，发行页 https://github.com/zhouzhouu07/sre-workbench/releases/tag/v0.4.1 。按用户指示使用10月3日已验收包，不重复回归/重编译；101项构建输入与发布源码、二进制SHA256一致，原256单元/17Electron/18包内检查结果保留。三个附件uploaded且服务端size/digest一致；匿名Release/latest网页与API200、EXE响应头200/Range206及MZ、blockmap/SHA256SUMS完整摘要通过；未下载完整匿名EXE。详见docs/testing/2026-10-06-v0.4.1-release.md和最新交接；下方0.4.0及本地阶段为历史追溯。Android/AIC/录屏助手保留本地，不自动发布后续版本。
 
 最新正式发行 **v0.4.0**，源码 Commit **3ed4ecb73a129cb8d99306449cf0fde20807d220**，Tag **v0.4.0**，分支 **feat/sre-desktop**，仓库 https://github.com/zhouzhouu07/sre-workbench ，Release https://github.com/zhouzhouu07/sre-workbench/releases/tag/v0.4.0 。发行后文档收尾 HEAD 为8e5d091，**2026-10-02 当前工作区另有本地未提交产品打磨**。先用 `git status --short`、`git log -3 --oneline` 和 `git rev-parse 'v0.4.0^{commit}'` 核对实际状态，保留未提交修改，不根据记忆猜测。
 
