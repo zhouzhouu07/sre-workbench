@@ -4,6 +4,15 @@ export const smtpProviders = [
   { value: "126", label: "网易 126", host: "smtp.126.com:465" },
   { value: "custom", label: "自定义 SMTP", host: "" },
 ];
+export const smtpProviderFor = (
+  host: string,
+  username: string,
+  from: string,
+) =>
+  username === from
+    ? (smtpProviders.find((p) => p.value !== "custom" && p.host === host)
+        ?.value ?? "custom")
+    : "custom";
 export const validEmail = (value: string) =>
   /^[^\s@,;]+@[^\s@,;]+\.[^\s@,;]+$/.test(value);
 export const validRecipients = (value: string) =>

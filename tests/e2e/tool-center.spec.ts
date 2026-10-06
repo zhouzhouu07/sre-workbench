@@ -17,9 +17,12 @@ test("tool center imports reviewed package, persists enable state and uninstalls
   await page.getByRole("searchbox",{name:"搜索工具"}).fill("custom.uptime");
   const toggle=page.getByRole("switch",{name:"启用 custom.uptime"});await expect(toggle).not.toBeChecked();
   await toggle.click();await expect(toggle).toBeChecked();
+  await app.evaluate(({ipcMain})=>{const original=(ipcMain as any)._invokeHandlers.get("sre:call");let failed=false;ipcMain.removeHandler("sre:call");ipcMain.handle("sre:call",async(e,method,params)=>{if(method==="studio.tool.usage"&&!failed){failed=true;return {ok:false,error:"合成使用记录暂时不可用"};}return original(e,method,params);});});
   await page.getByRole("button",{name:/^详\s*情$/}).click();
+  await expect(page.getByRole("complementary",{name:"工具详情"}).getByText("使用记录加载失败",{exact:true})).toBeVisible();
+  await page.getByRole("button",{name:"刷新工具"}).click();
   await expect(page.getByText("暂无执行记录",{exact:true})).toBeVisible();
-  await page.waitForTimeout(350); // Capture the fully opened drawer, not its animation.
+  await expect(page.getByRole("complementary",{name:"工具详情"})).toBeVisible();
   await page.screenshot({path:info.outputPath("tool-center.png"),fullPage:true});
   await page.getByRole("button",{name:"关闭",exact:true}).click();
   await page.getByRole("button",{name:"刷新工具"}).click();await expect(toggle).toBeChecked();

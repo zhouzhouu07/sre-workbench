@@ -1,0 +1,277 @@
+{
+  "checkedAt": "2026-10-03T03:12:42.960Z",
+  "original": {
+    "planId": "186c4993-6153-4bc2-b10e-9890b8487f9f",
+    "fingerprintMatched": true,
+    "apiChecks": [
+      {
+        "name": "monitoring.status",
+        "success": true
+      },
+      {
+        "name": "monitoring.test-readonly-ownership",
+        "success": true
+      }
+    ],
+    "checks": [
+      {
+        "name": "containers",
+        "code": 0,
+        "stdout": "sre-mon-132d0f44-de25-459f-906f-4ac3493fcf0c-grafana-1\tgrafana/grafana:11.6.0\tUp 4 minutes\t127.0.0.1:23000->3000/tcp\tsre-mon-132d0f44-de25-459f-906f-4ac3493fcf0c\tgrafana\nsre-mon-132d0f44-de25-459f-906f-4ac3493fcf0c-prometheus-1\tprom/prometheus:v3.2.1\tUp 4 minutes\t127.0.0.1:29090->9090/tcp\tsre-mon-132d0f44-de25-459f-906f-4ac3493fcf0c\tprometheus\nsre-mon-132d0f44-de25-459f-906f-4ac3493fcf0c-alertmanager-1\tprom/alertmanager:v0.28.1\tUp 4 minutes\t127.0.0.1:29093->9093/tcp\tsre-mon-132d0f44-de25-459f-906f-4ac3493fcf0c\talertmanager\nsre-mon-186c4993-6153-4bc2-b10e-9890b8487f9f-prometheus-1\tprom/prometheus:v3.2.1\tUp About an hour\t127.0.0.1:9090->9090/tcp\tsre-mon-186c4993-6153-4bc2-b10e-9890b8487f9f\tprometheus\nsre-mon-186c4993-6153-4bc2-b10e-9890b8487f9f-grafana-1\tgrafana/grafana:11.6.0\tUp About an hour\t127.0.0.1:3000->3000/tcp\tsre-mon-186c4993-6153-4bc2-b10e-9890b8487f9f\tgrafana\nsre-mon-186c4993-6153-4bc2-b10e-9890b8487f9f-alertmanager-1\tprom/alertmanager:v0.28.1\tUp About an hour\t127.0.0.1:9093->9093/tcp\tsre-mon-186c4993-6153-4bc2-b10e-9890b8487f9f\talertmanager\nsre-node-exporter-node-1\tprom/node-exporter:v1.9.0\tUp About an hour\t\tsre-node-exporter\tnode\n",
+        "stderr": ""
+      },
+      {
+        "name": "compose-projects",
+        "code": 0,
+        "stdout": "[{\"Name\":\"sre-mon-132d0f44-de25-459f-906f-4ac3493fcf0c\",\"Status\":\"running(3)\",\"ConfigFiles\":\"/opt/sre-workbench/monitoring/132d0f44-de25-459f-906f-4ac3493fcf0c/compose.yml\"},{\"Name\":\"sre-mon-186c4993-6153-4bc2-b10e-9890b8487f9f\",\"Status\":\"running(3)\",\"ConfigFiles\":\"/opt/sre-workbench/monitoring/186c4993-6153-4bc2-b10e-9890b8487f9f/compose.yml\"},{\"Name\":\"sre-node-exporter\",\"Status\":\"running(1)\",\"ConfigFiles\":\"/opt/sre-workbench/exporter/compose.yml\"}]\n",
+        "stderr": ""
+      },
+      {
+        "name": "grafana",
+        "code": 0,
+        "stdout": "{\n  \"database\": \"ok\",\n  \"version\": \"11.6.0\",\n  \"commit\": \"d2fdff9ee4d75c74bfd3a97c18a0b8e4d029f06e\"\n}",
+        "stderr": ""
+      },
+      {
+        "name": "prometheus",
+        "code": 0,
+        "stdout": "Prometheus Server is Ready.\n",
+        "stderr": ""
+      },
+      {
+        "name": "alertmanager",
+        "code": 0,
+        "stdout": "OK",
+        "stderr": ""
+      },
+      {
+        "name": "exporter",
+        "code": 0,
+        "stdout": "# HELP go_gc_duration_seconds A summary of the wall-time pause (stop-the-world) duration in garbage collection cycles.\n# TYPE go_gc_duration_seconds summary\ngo_gc_duration_seconds{quantile=\"0\"} 7.996e-06\ngo_gc_duration_seconds{quantile=\"0.25\"} 1.4487e-05\ngo_gc_duration_seconds{quantile=\"0.5\"} 2.088e-05\ngo_gc_duration_seconds{quantile=\"0.75\"} 2.4035e-05\ngo_gc_duration_seconds{quantile=\"1\"} 0.000156098\ngo_gc_duration_seconds_sum 0.015112918\ngo_gc_duration_seconds_count 600\n# HELP go_gc_gogc_percent Heap size target percentage configured by the user, otherwise 100. This value is set by the GOGC environment variable, and the runtime/debug.SetGCPercent function. Sourced from /gc/gogc:percent\n",
+        "stderr": ""
+      },
+      {
+        "name": "smtp-dns",
+        "code": 0,
+        "stdout": "198.18.0.177    STREAM smtp.qq.com\n198.18.0.177    DGRAM  \n198.18.0.177    RAW    \n",
+        "stderr": ""
+      },
+      {
+        "name": "smtp-tcp",
+        "code": 0,
+        "stdout": "",
+        "stderr": ""
+      },
+      {
+        "name": "smtp-tls",
+        "code": 0,
+        "stdout": "---\nSSL handshake has read 4817 bytes and written 776 bytes\nVerification: OK\n---\nNew, TLSv1.3, Cipher is TLS_AES_256_GCM_SHA384\nServer public key is 2048 bit\nSecure Renegotiation IS NOT supported\nCompression: NONE\nExpansion: NONE\nNo ALPN negotiated\nEarly data was not sent\nVerify return code: 0 (ok)\n---\n250 8BITMIME\r\nDONE\n",
+        "stderr": ""
+      },
+      {
+        "name": "effective-alertmanager-config",
+        "code": 0,
+        "config": {
+          "route": {
+            "receiver": "notifications",
+            "group_by": [
+              "alertname",
+              "instance"
+            ],
+            "group_wait": "30s",
+            "group_interval": "5m",
+            "repeat_interval": "4h"
+          },
+          "receivers": [
+            {
+              "name": "notifications",
+              "email_configs": [
+                {
+                  "to": "[MAILBOX]",
+                  "from": "[MAILBOX]",
+                  "smarthost": "smtp.qq.com:587",
+                  "auth_username": "[MAILBOX]",
+                  "auth_password_file": "[REDACTED]",
+                  "require_tls": true,
+                  "send_resolved": true
+                }
+              ]
+            }
+          ]
+        }
+      }
+    ]
+  },
+  "isolated": {
+    "planId": "132d0f44-de25-459f-906f-4ac3493fcf0c",
+    "completed": true,
+    "checks": [
+      {
+        "name": "interrupted-task-evidence",
+        "stdout": "Result=success\nLoadState=not-found\nActiveState=inactive\nSRE_JOB_DIRECTORY_ABSENT\n",
+        "stderr": "",
+        "code": 0
+      },
+      {
+        "name": "health-grafana",
+        "stdout": "{\n  \"database\": \"ok\",\n  \"version\": \"11.6.0\",\n  \"commit\": \"d2fdff9ee4d75c74bfd3a97c18a0b8e4d029f06e\"\n}",
+        "stderr": "",
+        "code": 0
+      },
+      {
+        "name": "health-prometheus",
+        "stdout": "Prometheus Server is Ready.\n",
+        "stderr": "",
+        "code": 0
+      },
+      {
+        "name": "health-alertmanager",
+        "stdout": "OK",
+        "stderr": "",
+        "code": 0
+      },
+      {
+        "name": "health-exporter",
+        "stdout": "node_uname_info{domainname=\"(none)\",machine=\"x86_64\",nodename=\"localhost.localdomain\",release=\"5.14.0-427.13.1.el9_4.x86_64\",sysname=\"Linux\",version=\"#1 SMP PREEMPT_DYNAMIC Wed May 1 19:11:28 UTC 2024\"} 1\n",
+        "stderr": "",
+        "code": 0
+      },
+      {
+        "name": "before-redeploy-mounts",
+        "stdout": "[{\"Type\":\"bind\",\"Source\":\"/opt/sre-workbench/monitoring/132d0f44-de25-459f-906f-4ac3493fcf0c/provisioning\",\"Destination\":\"/etc/grafana/provisioning\",\"Mode\":\"ro,z\",\"RW\":false,\"Propagation\":\"rprivate\"},{\"Type\":\"bind\",\"Source\":\"/opt/sre-workbench/monitoring/132d0f44-de25-459f-906f-4ac3493fcf0c/secrets/grafana_password\",\"Destination\":\"/run/secrets/grafana_password\",\"Mode\":\"ro,z\",\"RW\":false,\"Propagation\":\"rprivate\"},{\"Type\":\"volume\",\"Name\":\"sre-mon-132d0f44-de25-459f-906f-4ac3493fcf0c_grafana-data\",\"Source\":\"/var/lib/docker/volumes/sre-mon-132d0f44-de25-459f-906f-4ac3493fcf0c_grafana-data/_data\",\"Destination\":\"/var/lib/grafana\",\"Driver\":\"local\",\"Mode\":\"rw\",\"RW\":true,\"Propagation\":\"\"},{\"Type\":\"bind\",\"Source\":\"/opt/sre-workbench/monitoring/132d0f44-de25-459f-906f-4ac3493fcf0c/dashboards\",\"Destination\":\"/var/lib/grafana/dashboards\",\"Mode\":\"ro,z\",\"RW\":false,\"Propagation\":\"rprivate\"}]\n",
+        "stderr": "",
+        "code": 0
+      },
+      {
+        "name": "after-redeploy-mounts",
+        "stdout": "[{\"Type\":\"bind\",\"Source\":\"/opt/sre-workbench/monitoring/132d0f44-de25-459f-906f-4ac3493fcf0c/provisioning\",\"Destination\":\"/etc/grafana/provisioning\",\"Mode\":\"ro,z\",\"RW\":false,\"Propagation\":\"rprivate\"},{\"Type\":\"bind\",\"Source\":\"/opt/sre-workbench/monitoring/132d0f44-de25-459f-906f-4ac3493fcf0c/secrets/grafana_password\",\"Destination\":\"/run/secrets/grafana_password\",\"Mode\":\"ro,z\",\"RW\":false,\"Propagation\":\"rprivate\"},{\"Type\":\"volume\",\"Name\":\"sre-mon-132d0f44-de25-459f-906f-4ac3493fcf0c_grafana-data\",\"Source\":\"/var/lib/docker/volumes/sre-mon-132d0f44-de25-459f-906f-4ac3493fcf0c_grafana-data/_data\",\"Destination\":\"/var/lib/grafana\",\"Driver\":\"local\",\"Mode\":\"rw\",\"RW\":true,\"Propagation\":\"\"},{\"Type\":\"bind\",\"Source\":\"/opt/sre-workbench/monitoring/132d0f44-de25-459f-906f-4ac3493fcf0c/dashboards\",\"Destination\":\"/var/lib/grafana/dashboards\",\"Mode\":\"ro,z\",\"RW\":false,\"Propagation\":\"rprivate\"}]\n",
+        "stderr": "",
+        "code": 0
+      },
+      {
+        "name": "notification-before",
+        "stdout": "alertmanager_notifications_failed_total{integration=\"email\",reason=\"clientError\"} 0\nalertmanager_notifications_failed_total{integration=\"email\",reason=\"contextCanceled\"} 0\nalertmanager_notifications_failed_total{integration=\"email\",reason=\"contextDeadlineExceeded\"} 0\nalertmanager_notifications_failed_total{integration=\"email\",reason=\"other\"} 0\nalertmanager_notifications_failed_total{integration=\"email\",reason=\"serverError\"} 0\nalertmanager_notifications_total{integration=\"email\"} 0\n",
+        "stderr": "",
+        "code": 0
+      },
+      {
+        "name": "notification-after",
+        "stdout": "alertmanager_notifications_failed_total{integration=\"email\",reason=\"clientError\"} 0\nalertmanager_notifications_failed_total{integration=\"email\",reason=\"contextCanceled\"} 0\nalertmanager_notifications_failed_total{integration=\"email\",reason=\"contextDeadlineExceeded\"} 0\nalertmanager_notifications_failed_total{integration=\"email\",reason=\"other\"} 0\nalertmanager_notifications_failed_total{integration=\"email\",reason=\"serverError\"} 0\nalertmanager_notifications_total{integration=\"email\"} 1\n",
+        "stderr": "",
+        "code": 0
+      },
+      {
+        "name": "alertmanager-logs",
+        "stdout": "time=2026-10-03T03:08:44.398Z level=INFO source=main.go:191 msg=\"Starting Alertmanager\" version=\"(version=0.28.1, branch=HEAD, revision=b2099eaa2c9ebc25edb26517cb9c732738e93910)\"\ntime=2026-10-03T03:08:44.398Z level=INFO source=main.go:192 msg=\"Build context\" build_context=\"(go=go1.23.7, platform=linux/amd64, user=root@fa3ca569dfe4, date=20250307-15:05:18, tags=netgo)\"\ntime=2026-10-03T03:08:44.399Z level=INFO source=cluster.go:185 msg=\"setting advertise address explicitly\" component=cluster addr=172.19.0.2 port=9094\ntime=2026-10-03T03:08:44.403Z level=INFO source=cluster.go:674 msg=\"Waiting for gossip to settle...\" component=cluster interval=2s\ntime=2026-10-03T03:08:44.434Z level=INFO source=coordinator.go:112 msg=\"Loading configuration file\" component=configuration file=/etc/alertmanager/alertmanager.yml\ntime=2026-10-03T03:08:44.435Z level=INFO source=coordinator.go:125 msg=\"Completed loading of configuration file\" component=configuration file=/etc/alertmanager/alertmanager.yml\ntime=2026-10-03T03:08:44.437Z level=INFO source=tls_config.go:347 msg=\"Listening on\" address=[::]:9093\ntime=2026-10-03T03:08:44.439Z level=INFO source=tls_config.go:350 msg=\"TLS is disabled.\" http2=false address=[::]:9093\ntime=2026-10-03T03:08:46.404Z level=INFO source=cluster.go:699 msg=\"gossip not settled\" component=cluster polls=0 before=0 now=1 elapsed=2.000733955s\ntime=2026-10-03T03:08:54.407Z level=INFO source=cluster.go:691 msg=\"gossip settled; proceeding\" component=cluster elapsed=10.004090664s\n",
+        "stderr": "",
+        "code": 0
+      }
+    ],
+    "tasks": [
+      {
+        "name": "same-plan-redeployment",
+        "tasks": [
+          {
+            "id": "07b74fa9-5788-47b5-bab2-71456a3ad5a0",
+            "status": "succeeded",
+            "exitCode": 0,
+            "logs": ""
+          },
+          {
+            "id": "b8cc56ba-41a3-4941-97c1-eff9e50118e9",
+            "status": "succeeded",
+            "exitCode": 0,
+            "logs": "SRE_MONITOR_CHECK\tgrafana\tready\nSRE_MONITOR_CHECK\tprometheus\tready\nSRE_MONITOR_CHECK\talertmanager\tready\nSRE_MONITOR_CHECK\texporter\tready\nMonitoring services healthy. Existing Grafana administrator password remains managed by Grafana."
+          }
+        ]
+      }
+    ],
+    "urls": {
+      "grafana": {
+        "status": 200,
+        "containsHtml": true
+      },
+      "prometheus": {
+        "status": 200,
+        "containsHtml": true
+      },
+      "alertmanager": {
+        "status": 200,
+        "containsHtml": true
+      }
+    },
+    "loginBefore": 200,
+    "loginAfter": 200,
+    "test": {
+      "submitted": true,
+      "state": "active",
+      "silencedBy": [],
+      "inhibitedBy": [],
+      "receivers": [
+        "notifications"
+      ],
+      "message": "测试告警已提交，首次通知需等待 30s；尚未确认 SMTP 发送或邮箱收件，请检查接收渠道及 Alertmanager 日志。"
+    }
+  },
+  "ui": {
+    "planId": "132d0f44-de25-459f-906f-4ac3493fcf0c",
+    "pageErrors": [],
+    "consoleErrors": [],
+    "checks": [
+      {
+        "name": "Windows-click-Grafana-and-browser-login",
+        "passed": true,
+        "title": "Grafana"
+      },
+      {
+        "name": "Windows-targets-alerts-read-through-IPC",
+        "passed": true,
+        "nodeTargetUp": true
+      },
+      {
+        "name": "mail-account-authorization-explanation",
+        "passed": true
+      }
+    ],
+    "completed": true
+  },
+  "cleanup": {
+    "planId": "132d0f44-de25-459f-906f-4ac3493fcf0c",
+    "checkedAt": "2026-10-03T03:14:24.128Z",
+    "code": 0,
+    "stdout": "e648e7b82f99 sre-mon-186c4993-6153-4bc2-b10e-9890b8487f9f-prometheus-1 127.0.0.1:9090->9090/tcp\n75d3522899f5 sre-mon-186c4993-6153-4bc2-b10e-9890b8487f9f-grafana-1 127.0.0.1:3000->3000/tcp\n0b1ed2c9452e sre-mon-186c4993-6153-4bc2-b10e-9890b8487f9f-alertmanager-1 127.0.0.1:9093->9093/tcp\n0cd5a55c89dc sre-node-exporter-node-1 \nsre-mon-132d0f44-de25-459f-906f-4ac3493fcf0c_alertmanager-data\nsre-mon-132d0f44-de25-459f-906f-4ac3493fcf0c_grafana-data\nsre-mon-132d0f44-de25-459f-906f-4ac3493fcf0c_prometheus-data\nsre-mon-186c4993-6153-4bc2-b10e-9890b8487f9f_alertmanager-data\nsre-mon-186c4993-6153-4bc2-b10e-9890b8487f9f_grafana-data\nsre-mon-186c4993-6153-4bc2-b10e-9890b8487f9f_prometheus-data\n",
+    "stderr": " Container sre-mon-132d0f44-de25-459f-906f-4ac3493fcf0c-alertmanager-1 Stopping \n Container sre-mon-132d0f44-de25-459f-906f-4ac3493fcf0c-grafana-1 Stopping \n Container sre-mon-132d0f44-de25-459f-906f-4ac3493fcf0c-prometheus-1 Stopping \n Container sre-mon-132d0f44-de25-459f-906f-4ac3493fcf0c-grafana-1 Stopped \n Container sre-mon-132d0f44-de25-459f-906f-4ac3493fcf0c-prometheus-1 Stopped \n Container sre-mon-132d0f44-de25-459f-906f-4ac3493fcf0c-alertmanager-1 Stopped \n"
+  },
+  "verification": {
+    "unit": {
+      "files": 24,
+      "passed": 252
+    },
+    "monitoring": {
+      "files": 4,
+      "passed": 47
+    },
+    "electron": {
+      "passed": 17
+    },
+    "typecheck": true,
+    "build": true
+  },
+  "boundaries": {
+    "originalPortErrorReproduced": false,
+    "userAcceptanceConfirmed": true,
+    "userAcceptanceEvidence": {
+      "source": "user_message",
+      "date": "2026-10-03",
+      "statement": "用户明确反馈测试全部通过、成功；原端口错误仍未由工程取证复现。"
+    },
+    "mailboxReceiptConfirmed": true,
+    "mailboxReceiptEvidence": {
+      "source": "user_message",
+      "date": "2026-10-03",
+      "statement": "用户明确确认已收到邮件，未指定具体告警批次。"
+    },
+    "packaged": false,
+    "released": false
+  }
+}

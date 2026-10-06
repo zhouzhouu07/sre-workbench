@@ -8,9 +8,11 @@ v0.4.0 竞赛版已实现 Agent Studio、Tool Center、Skill Center、Agent Buil
 
 项目源码已公开：[GitHub 仓库](https://github.com/zhouzhouu07/sre-workbench)。可从 [GitHub Releases 查看已发布的 Windows 安装包](https://github.com/zhouzhouu07/sre-workbench/releases)，下载时请核对对应版本说明及 SHA256；源码更新不代表旧发布包已包含最新修复。
 
-安装 `SRE.Workbench.Setup.0.4.0.exe`（本地构建名 `release/SRE Workbench Setup 0.4.0.exe`），或运行 `release/win-unpacked/SRE Workbench.exe`。普通使用无需安装 Node.js、Python、Git 或 Docker；Git 已随软件携带，远端缺少 Docker 时由确认后的部署任务安装。
+安装 [SRE.Workbench.Setup.0.4.1.exe](https://github.com/zhouzhouu07/sre-workbench/releases/download/v0.4.1/SRE.Workbench.Setup.0.4.1.exe)（本地构建名 `release/v0.4.1/SRE Workbench Setup 0.4.1.exe`），或运行同目录 `win-unpacked/SRE Workbench.exe`。普通使用无需安装 Node.js、Python、Git 或 Docker；Git 已随软件携带，远端缺少 Docker 时由确认后的部署任务安装。
 
-当前版本 [v0.4.0 更新说明](docs/releases/v0.4.0.md)；[v0.4.0 发行页](https://github.com/zhouzhouu07/sre-workbench/releases/tag/v0.4.0)。
+当前版本 [v0.4.1 更新说明](docs/releases/v0.4.1.md)；[v0.4.1 发行页](https://github.com/zhouzhouu07/sre-workbench/releases/tag/v0.4.1)。历史 [v0.4.0](https://github.com/zhouzhouu07/sre-workbench/releases/tag/v0.4.0) 保留。
+
+**v0.4.1** 包含监控、Workflow／Trace稳定性修复和桌面界面改进。2026-10-06按用户指示将10月3日已构建、验收的安装包转为正式发行；101项构建输入与现有产品代码、安装包摘要一致，本轮不重复回归。[更新说明](docs/releases/v0.4.1.md)／[原打包验收](docs/testing/2026-10-03-v0.4.1-package.md)／[发行核验](docs/testing/2026-10-06-v0.4.1-release.md)。
 
 1. 在「主机管理」添加 Linux 地址、SSH 用户和密码或私钥，点击连接检测，核实并信任 SSH 指纹。
 2. 点击管理查看资源、进程、系统服务、日志、容器及 SFTP 文件。终端支持多标签。

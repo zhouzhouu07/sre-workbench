@@ -1,6 +1,6 @@
 {
   "name": "sre-workbench",
-  "version": "0.4.0",
+  "version": "0.4.1",
   "description": "SRE 运维工作台",
   "author": "SRE Workbench",
   "private": true,
@@ -48,6 +48,7 @@
           "execution-trace.md",
           "competition-agent-studio.md",
           "releases/v0.4.0.md",
+          "releases/v0.4.1.md",
           "testing/competition-agent-benchmark.md",
           "testing/evidence/studio-20261001/**"
         ],

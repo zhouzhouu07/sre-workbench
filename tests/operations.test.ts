@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { mkdtemp, mkdir, writeFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -7,6 +7,9 @@ import { FeatureService } from "../src/main/features/operations";
 import { safeFiles } from "../src/main/features/source";
 import { monitoringFiles } from "../src/main/features/monitoring";
 import { parse } from "yaml";
+import { EventEmitter } from "node:events";
+import { createServer as createHttpServer } from "node:http";
+import { createConnection, Server } from "node:net";
 
 const roots: string[] = [];
 const cores: Backend[] = [];
@@ -86,6 +89,307 @@ const monitor = {
   webhook: "https://example.com/hook",
 };
 describe("operations safety", () => {
+  it.each(["save", "delete"])(
+    "does not open a stale monitoring tunnel when %s occurs during listen",
+    async (action) => {
+      const { core, dir } = await setup();
+      const opened = vi.fn(async (_url: string) => {});
+      const service = new FeatureService(core, {
+        gitPath: "git",
+        tempDir: dir,
+        openExternal: opened,
+      });
+      const saved = await service.handle("monitoring.save", monitor);
+      core.ssh.exec = async (_host, command) => ({
+        code: 0,
+        stderr: "",
+        stdout: command.includes("docker ps")
+          ? `sre-mon-${saved.id}\tprometheus\t127.0.0.1:9090->9090/tcp`
+          : "ready",
+      });
+      const client = new EventEmitter() as any;
+      client.forwardOut = (_a: any, _b: any, _c: any, _d: any, callback: any) =>
+        callback(new Error("old port unavailable"));
+      client.end = vi.fn(() => client.emit("close"));
+      core.ssh.connect = async () => client;
+      let release: (() => void) | undefined;
+      const originalListen = Server.prototype.listen;
+      const listenSpy = vi
+        .spyOn(Server.prototype, "listen")
+        .mockImplementation(function (this: Server, ...args: any[]) {
+          const callback = args[args.length - 1];
+          args[args.length - 1] = () => {
+            release = callback;
+          };
+          return originalListen.apply(this, args as any);
+        });
+      try {
+        const opening = service
+          .handle("monitoring.open", { id: saved.id, service: "prometheus" })
+          .then(
+            () => null,
+            (error) => error,
+          );
+        await expect.poll(() => typeof release).toBe("function");
+        if (action === "delete")
+          await service.handle("monitoring.delete", { id: saved.id });
+        else
+          await service.handle("monitoring.save", {
+            ...monitor,
+            id: saved.id,
+            prometheusPort: 19090,
+          });
+        release!();
+        expect((await opening)?.message).toContain("监控方案已改变");
+        expect(opened).not.toHaveBeenCalled();
+        expect(client.end).toHaveBeenCalled();
+      } finally {
+        listenSpy.mockRestore();
+        service.close();
+      }
+    },
+  );
+  it.each([true, false])(
+    "concurrent monitoring opens share the probe before browser access (forwarding fails=%s)",
+    async (fails) => {
+      const { core, dir } = await setup();
+      const opened: string[] = [];
+      const service = new FeatureService(core, {
+        gitPath: "git",
+        tempDir: dir,
+        openExternal: async (url) => {
+          opened.push(url);
+        },
+      });
+      const saved = await service.handle("monitoring.save", monitor);
+      core.ssh.exec = async (_host, command) => ({
+        code: 0,
+        stderr: "",
+        stdout: command.includes("docker ps")
+          ? `sre-mon-${saved.id}\tprometheus\t127.0.0.1:9090->9090/tcp`
+          : "ready",
+      });
+      const upstream = createHttpServer((_req, res) => res.end("ready"));
+      await new Promise<void>((resolve) =>
+        upstream.listen(0, "127.0.0.1", resolve),
+      );
+      const upstreamPort = (upstream.address() as { port: number }).port;
+      const callbacks: any[] = [];
+      const client = new EventEmitter() as any;
+      client.forwardOut = (_a: any, _b: any, _c: any, _d: any, callback: any) =>
+        callbacks.push(callback);
+      client.end = vi.fn(() => client.emit("close"));
+      core.ssh.connect = vi.fn(async () => client);
+      const params = { id: saved.id, service: "prometheus" };
+      let settled = 0;
+      const track = (promise: Promise<any>) =>
+        promise.then(
+          (value) => {
+            settled++;
+            return { value };
+          },
+          (error) => {
+            settled++;
+            return { error };
+          },
+        );
+      try {
+        const first = track(service.handle("monitoring.open", params));
+        await expect.poll(() => callbacks.length).toBe(1);
+        const second = track(service.handle("monitoring.open", params));
+        // Give a cached URL branch time to return while the first actual forwarding probe is blocked.
+        await new Promise((resolve) => setTimeout(resolve, 30));
+        expect(settled).toBe(0);
+        expect(opened).toEqual([]);
+        expect(core.ssh.connect).toHaveBeenCalledTimes(1);
+        for (const callback of callbacks) {
+          if (fails) callback(new Error("administratively prohibited"));
+          else {
+            const stream = createConnection(upstreamPort, "127.0.0.1", () =>
+              callback(null, stream),
+            );
+          }
+        }
+        const results = await Promise.all([first, second]);
+        if (fails) {
+          for (const result of results)
+            expect((result as any).error.message).toContain("SSH 隧道建立失败");
+          expect(opened).toEqual([]);
+          expect(client.end).toHaveBeenCalled();
+        } else {
+          expect((results[0] as any).value).toMatch(/^http:\/\/127\.0\.0\.1:/);
+          expect((results[1] as any).value).toBe((results[0] as any).value);
+          expect(opened).toEqual([(results[0] as any).value]);
+        }
+      } finally {
+        service.close();
+        await new Promise<void>((resolve) => upstream.close(() => resolve()));
+      }
+    },
+  );
+  it("rejects SSH forwarding failures before opening a browser and releases the tunnel", async () => {
+    const { core, service } = await setup();
+    const saved = await service.handle("monitoring.save", monitor);
+    core.ssh.exec = async (_host, command) => ({
+      code: 0,
+      stderr: "",
+      stdout: command.includes("docker ps")
+        ? `sre-mon-${saved.id}\tprometheus\t127.0.0.1:9090->9090/tcp`
+        : "ready",
+    });
+    const client = new EventEmitter() as any;
+    let ended = false;
+    client.forwardOut = (_a: any, _b: any, _c: any, _d: any, cb: any) =>
+      cb(new Error("administratively prohibited"));
+    client.end = () => {
+      ended = true;
+      client.emit("close");
+    };
+    core.ssh.connect = async () => client;
+    await expect(
+      service.handle("monitoring.open", {
+        id: saved.id,
+        service: "prometheus",
+      }),
+    ).rejects.toThrow("SSH 隧道建立失败");
+    expect(ended).toBe(true);
+    service.close();
+  });
+  it("opens a healthy custom port through the correct host, reuses and closes the tunnel", async () => {
+    const { core, service } = await setup();
+    const saved = await service.handle("monitoring.save", {
+      ...monitor,
+      prometheusPort: 19090,
+    });
+    const server = createHttpServer((_req, res) => res.end("ready"));
+    await new Promise<void>((resolve) =>
+      server.listen(0, "127.0.0.1", resolve),
+    );
+    const address = server.address() as { port: number };
+    const forwarded: number[] = [];
+    const hosts: string[] = [];
+    core.ssh.exec = async (host, command) => {
+      hosts.push(host);
+      return {
+        code: 0,
+        stderr: "",
+        stdout: command.includes("docker ps")
+          ? `sre-mon-${saved.id}\tprometheus\t127.0.0.1:19090->9090/tcp`
+          : "ready",
+      };
+    };
+    const client = new EventEmitter() as any;
+    client.forwardOut = (
+      _src: any,
+      _port: any,
+      remote: string,
+      port: number,
+      cb: any,
+    ) => {
+      expect(remote).toBe("127.0.0.1");
+      forwarded.push(port);
+      const socket = createConnection(address.port, "127.0.0.1", () =>
+        cb(null, socket),
+      );
+    };
+    client.end = () => client.emit("close");
+    core.ssh.connect = async (host) => {
+      hosts.push(host);
+      return client;
+    };
+    try {
+      const url = await service.handle("monitoring.open", {
+        id: saved.id,
+        service: "prometheus",
+      });
+      expect(await (await fetch(url)).text()).toBe("ready");
+      expect(
+        await service.handle("monitoring.open", {
+          id: saved.id,
+          service: "prometheus",
+        }),
+      ).toBe(url);
+      expect(hosts.every((h) => h === "host")).toBe(true);
+      expect(forwarded.every((p) => p === 19090)).toBe(true);
+      service.close();
+      await expect(fetch(url)).rejects.toThrow();
+    } finally {
+      service.close();
+      await new Promise<void>((resolve) => server.close(() => resolve()));
+    }
+  });
+  it("keeps blank SMTP credentials, replaces explicit updates and never exports them", async () => {
+    const { core, service } = await setup();
+    const saved = await service.handle("monitoring.save", monitor);
+    const { smtpPassword, grafanaPassword, ...values } = monitor;
+    const kept = await service.handle("monitoring.save", {
+      ...values,
+      id: saved.id,
+      smtpPassword: "",
+    });
+    expect(core.store.getSecret(kept.smtpCredentialId)).toBe(smtpPassword);
+    const changed = await service.handle("monitoring.save", {
+      ...values,
+      id: saved.id,
+      smtpPassword: "replacement-secret",
+    });
+    expect(changed.smtpCredentialId).toBe(saved.smtpCredentialId);
+    expect(core.store.getSecret(changed.smtpCredentialId)).toBe(
+      "replacement-secret",
+    );
+    expect(JSON.stringify(core.store.snapshot())).not.toContain(
+      "replacement-secret",
+    );
+    expect(core.store.redact("SMTP password=replacement-secret")).not.toContain(
+      "replacement-secret",
+    );
+  });
+  it("reports a submitted test alert suppressed by a silence without claiming delivery", async () => {
+    const { core, service } = await setup();
+    const saved = await service.handle("monitoring.save", monitor);
+    core.ssh.exec = async (_host, command) => ({
+      code: 0,
+      stderr: "",
+      stdout: command.includes("docker ps")
+        ? `sre-mon-${saved.id}\talertmanager\t127.0.0.1:9093->9093/tcp`
+        : command.includes("-X POST")
+          ? ""
+          : JSON.stringify([
+              {
+                labels: { alertname: "SREWorkbenchTest" },
+                receivers: [{ name: "notifications" }],
+                status: {
+                  state: "suppressed",
+                  silencedBy: ["silence-id"],
+                  inhibitedBy: [],
+                },
+              },
+            ]),
+    });
+    const result = await service.handle("monitoring.test", { id: saved.id });
+    expect(result.submitted).toBe(true);
+    expect(result.state).toBe("suppressed");
+    expect(result.silencedBy).toEqual(["silence-id"]);
+    expect(result.message).toContain("静默");
+    expect(result.message).not.toContain("已送达");
+  });
+  it("blocks opening an owned but unhealthy Grafana before creating an SSH tunnel", async () => {
+    const { core, service } = await setup();
+    const saved = await service.handle("monitoring.save", monitor);
+    core.ssh.exec = async (_host, command) => ({
+      code: 0,
+      stderr: "",
+      stdout: command.includes("docker ps")
+        ? `sre-mon-${saved.id}\tgrafana\t127.0.0.1:3000->3000/tcp`
+        : JSON.stringify({ database: "failed" }),
+    });
+    core.ssh.connect = async () => {
+      throw new Error("Must not create tunnel");
+    };
+    await expect(
+      service.handle("monitoring.open", { id: saved.id, service: "grafana" }),
+    ).rejects.toThrow("Grafana 健康检查失败");
+  });
   it("routes monitor APIs to custom ports and checks ownership before requests", async () => {
     const { core, service } = await setup();
     const saved = await service.handle("monitoring.save", {
@@ -118,7 +422,12 @@ describe("operations safety", () => {
         .filter((c) => c.includes("curl"))
         .every((c) => /127\.0\.0\.1:1909[03]/.test(c)),
     ).toBe(true);
-    expect(requests.filter((c) => c.includes("curl"))).toHaveLength(5);
+    expect(requests.filter((c) => c.includes("curl"))).toHaveLength(6);
+    expect(
+      requests.some((c) =>
+        c.includes("/api/v2/alerts?filter=alertname%3DSREWorkbenchTest"),
+      ),
+    ).toBe(true);
     core.ssh.exec = async () => ({ code: 0, stderr: "", stdout: "" });
     await expect(
       service.handle("monitoring.test", { id: saved.id }),

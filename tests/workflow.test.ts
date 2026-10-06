@@ -25,6 +25,23 @@ it("retains imported tool structured data on recovery for downstream condition m
 });
 async function fixture(){const dir=await mkdtemp(path.join(tmpdir(),"sre-flow-"));closes.push(()=>rm(dir,{recursive:true,force:true}));const core=new Backend({dataDir:dir,encrypt:s=>s,decrypt:s=>s,emit:()=>{},chooseFile:async()=>null});await core.init();core.store.put("hosts",{id:"host",name:"test",address:"192.0.2.10",port:22,username:"root",fingerprint:"test",credentialId:"",authType:"password",group:"",tags:[]});core.store.put("providers",{id:"model",kind:"model",protocol:"openai",name:"test",model:"test",baseUrl:"http://127.0.0.1:1234/v1",timeout:10});const ai=new AIService(core.store,()=>{}),agent=new AgentService(core,ai,()=>{}),runtime=new WorkflowRuntime(core,agent,()=>{});closes.push(async()=>{await runtime.close();await agent.close();ai.close();await core.close();});const save=(nodes:WorkflowNode[])=>core.workflowRegistry.save({name:"测试",description:"",nodes});const start=async(nodes:WorkflowNode[],permission="autonomous",input:any={})=>runtime.handle("studio.workflow.run",{id:save(nodes).id,target,permission,input}) as Promise<WorkflowRun>;return {core,ai,agent,runtime,save,start};}
 async function until(runtime:WorkflowRuntime,id:string,status:string[]){for(let i=0;i<300;i++){const r=runtime.get(id);if(status.includes(r.status)){await new Promise(r=>setTimeout(r,2));return r;}await new Promise(r=>setTimeout(r,5));}throw new Error("流程未达到预期状态："+JSON.stringify(runtime.get(id)));}
+it("does not persist an orphan run when concurrent starts race after target validation",async()=>{
+ const {start,core}=await fixture();
+ const graph=[n("start","Start",{},"wait"),n("wait","Wait",{seconds:5},"end"),n("end","End")];
+ const results=await Promise.allSettled([start(graph),start(graph)]);
+ expect(results.filter(r=>r.status==="fulfilled")).toHaveLength(1);
+ expect(results.filter(r=>r.status==="rejected")).toHaveLength(1);
+ expect(core.store.list("workflowRuns")).toHaveLength(1);
+});
+it("does not save a running checkpoint when shutdown wins target validation",async()=>{
+ const {runtime,start,core}=await fixture();
+ let validated!:(value:typeof target)=>void;
+ vi.spyOn(core.toolRegistry,"validateTarget").mockImplementation(()=>new Promise(resolve=>{validated=resolve;}));
+ const pending=start([n("start","Start",{},"end"),n("end","End")]);
+ const rejected=expect(pending).rejects.toThrow(/退出/);
+ await runtime.close();validated(target);await rejected;
+ expect(core.store.list("workflowRuns")).toHaveLength(0);
+});
 it.each(["failed","cancelled"])("accounts %s child tools before an onFailure successor can exceed the parent budget",async status=>{
  const {runtime,start,core,agent}=await fixture();const a=core.agentBuilder.get("template.inspection"),{id,version,source,createdAt,updatedAt,digest,...config}=a;core.agentBuilder.save({...config,id,expectedDigest:digest,providerId:"model"});
  const launches:number[]=[];vi.spyOn(agent,"startPrepared").mockImplementation(async(params:any,_snapshot:any,sessionId?:string)=>{launches.push(params.maxSteps);return {id:sessionId} as any;});
@@ -72,7 +89,7 @@ it("does not allow readonly or missing post-change verification to succeed",asyn
 });
 it("retries only a confirmed failed node within a bounded retry counter",async()=>{
  const {runtime,start}=await fixture();const exec=vi.spyOn(AgentTools.prototype,"execute").mockResolvedValueOnce({code:1,stdout:"temporary"}).mockResolvedValue({code:0,stdout:"ready"});
- const r=await start([n("start","Start",{},"verify"),n("verify","Verify",{tool:"http_check",arguments:{url:"http://127.0.0.1:18101"}},"end",{onFailure:"retry"}),n("retry","Retry",{retryTarget:"verify",maxRetries:2,backoff:0},"end"),n("end","End")]);const done=await until(runtime,r.id,["completed"]);expect(done.retries.retry).toBe(1);expect(exec).toHaveBeenCalledTimes(2);
+ const r=await start([n("start","Start",{},"verify"),n("verify","Verify",{tool:"http_check",arguments:{url:"http://127.0.0.1:18101"}},"end",{onFailure:"retry"}),n("retry","Retry",{retryTarget:"verify",maxRetries:2,backoff:0},"end"),n("end","End")]);const done=await until(runtime,r.id,["completed"]);expect(done.retries.retry).toBe(1);expect(exec).toHaveBeenCalledTimes(2);expect(done.events.find(e=>e.kind==="node.failed")?.data).toMatchObject({status:"failed",call:{tool:"http_check",arguments:{url:"http://127.0.0.1:18101"}},output:{code:1,stdout:"temporary"}});expect(done.events.find(e=>e.kind==="node.completed"&&e.nodeId==="verify")?.data).toMatchObject({status:"succeeded",output:{code:0,stdout:"ready"}});
 });
 it("recovers submitted tasks after restart without replaying either completed mutation",async()=>{
  const {runtime,start,core,agent}=await fixture();let calls=0;const exec=vi.spyOn(AgentTools.prototype,"execute").mockImplementation(async(...args)=>{calls++;if(calls===2){core.store.put("tasks",{id:"remote",hostId:"host",source:"ai",status:"unknown",logs:"",updatedAt:new Date().toISOString()});args[5]("remote");throw new UncertainExecution("SSH断线");}return {code:0,stdout:"ok"};});

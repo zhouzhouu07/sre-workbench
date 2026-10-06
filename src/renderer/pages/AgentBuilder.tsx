@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { Alert, Button, Card, Col, Form, Input, InputNumber, Modal, Row, Select, Space, Switch, Table, Tag, Typography } from "antd";
+import { Alert, Button, Col, Form, Input, InputNumber, Modal, Row, Select, Space, Switch, Table, Tooltip, Typography } from "antd";
 import { call, reportError } from "../api";
 import type { AgentDefinition, ToolDefinition, SkillDefinition } from "../../shared/studio";
 import type { AgentSession } from "../../shared/agent";
@@ -12,18 +12,23 @@ export default function AgentBuilder(){
  const load=useCallback(async()=>{const [a,t,s,d]=await Promise.all([call<AgentDefinition[]>("studio.agent.list"),call<ToolDefinition[]>("studio.tool.list"),call<SkillDefinition[]>("studio.skill.list"),call<Snapshot>("snapshot")]);setRows(a);setTools(t);setSkills(s);setData(d);},[]);
  useEffect(()=>{void load().catch(reportError);},[load]);
  const action=async(fn:()=>Promise<unknown>)=>{setBusy(true);try{await fn();await load();}catch(e){reportError(e);}finally{setBusy(false);}};
- const edit=(a:AgentDefinition|null)=>{form.resetFields();form.setFieldsValue(a?{...a,acceptanceCriteria:a.acceptanceCriteria.join("\n")}: {name:"",description:"",icon:"🛠",category:"SRE",providerId:"",permissionCeiling:"readonly",riskPolicy:"balanced",toolIds:tools.filter(t=>t.enabled&&t.permissionRequirement!=="mutation").map(t=>t.id),skillIds:[],maxSteps:40,maxRuntimeSeconds:1800,targetHostIds:[],rootPrefix:"/",acceptanceCriteria:"报告引用真实证据；变更后独立验收",enabled:true});setEditing(a);};
+ const edit=(a:AgentDefinition|null)=>{form.resetFields();form.setFieldsValue(a?{...a,acceptanceCriteria:a.acceptanceCriteria.join("\n")}: {name:"",description:"",icon:"",category:"SRE",providerId:"",permissionCeiling:"readonly",riskPolicy:"balanced",toolIds:tools.filter(t=>t.enabled&&t.permissionRequirement!=="mutation").map(t=>t.id),skillIds:[],maxSteps:40,maxRuntimeSeconds:1800,targetHostIds:[],rootPrefix:"/",acceptanceCriteria:"报告引用真实证据；变更后独立验收",enabled:true});setEditing(a);};
+ const model=(a:AgentDefinition)=>data?.providers.find(p=>p.id===a.providerId&&p.kind==="model");
+ const blocked=(a:AgentDefinition)=>!a.enabled?"Agent 已禁用":!model(a)?"先编辑并绑定模型配置":!model(a)?.model.trim()?"先在设置中填写模型 ID":"";
  const selectTools=tools.map(t=>({value:t.id,label:`${t.name} · ${t.id}${t.enabled?"":"（禁用）"}`}));
  return <>
-  <Card style={{marginBottom:16}}><Space wrap style={{width:"100%",justifyContent:"space-between"}}><div><Typography.Title level={3}>Agent Builder · 构建运维助手</Typography.Title><Typography.Text type="secondary">版本化配置 · 工具白名单 · 技能快照 · 目标与权限约束</Typography.Text></div><Space><Button onClick={()=>action(()=>call("studio.agent.import"))}>导入 Agent</Button><Button type="primary" onClick={()=>edit(null)}>新建 Agent</Button></Space></Space></Card>
+  <div className="studio-toolbar"><div><Typography.Title level={4}>Agent Builder · 构建运维助手</Typography.Title><Typography.Text type="secondary">模型配置、权限和能力；运行时保存版本快照</Typography.Text></div><Space><Button onClick={()=>action(()=>call("studio.agent.import"))}>导入 Agent</Button><Button type="primary" onClick={()=>edit(null)}>新建 Agent</Button></Space></div>
   {result&&<Alert type="success" showIcon closable onClose={()=>setResult("")} title={result} style={{marginBottom:16}}/>}
-  <Table<AgentDefinition> rowKey="id" dataSource={rows} pagination={{pageSize:8}} scroll={{x:1100}} columns={[
-   {title:"Agent",key:"name",render:(_,a)=><><strong>{a.icon} {a.name}</strong><div className="muted">{a.description}</div></>},
-   {title:"版本",dataIndex:"version"},{title:"分类",dataIndex:"category"},
-   {title:"权限上限",key:"permission",render:(_,a)=>permissionLabels[a.permissionCeiling]},
-   {title:"能力",key:"abilities",render:(_,a)=><>{a.toolIds.length} Tools / {a.skillIds.length} Skills<br/><Tag>{a.riskPolicy}</Tag></>},
-   {title:"启用",key:"enabled",render:(_,a)=><Switch aria-label={`启用Agent ${a.id}`} disabled={busy} checked={a.enabled} onChange={enabled=>action(()=>call("studio.agent.enable",{id:a.id,enabled}))}/>},
-   {title:"操作",key:"actions",render:(_,a)=><Space wrap><Button onClick={()=>edit(a)}>编辑</Button><Button onClick={()=>action(()=>call("studio.agent.clone",{id:a.id}))}>克隆</Button><Button onClick={()=>action(()=>call("studio.agent.export",{id:a.id}))}>导出</Button><Button type="primary" disabled={!a.enabled||busy} onClick={()=>{runForm.resetFields();runForm.setFieldsValue({permission:a.permissionCeiling,root:a.rootPrefix,sudo:false});setRunning(a);}}>运行</Button>{a.source==="custom"&&<Button danger onClick={()=>Modal.confirm({title:`删除 ${a.name}？`,content:"历史运行快照保留。",onOk:()=>action(()=>call("studio.agent.remove",{id:a.id}))})}>删除</Button>}</Space>},
+  <Table<AgentDefinition> size="small" rowKey="id" dataSource={rows} pagination={{pageSize:8}} scroll={{x:1100}} columns={[
+   {title:"Agent",key:"name",width:180,fixed:"left",render:(_,a)=><><strong>{a.name}</strong><Tooltip title={a.description}><div className="muted single-line">{a.description}</div></Tooltip></>},
+   {title:"版本",dataIndex:"version",width:65},
+   {title:"模型",key:"model",width:140,render:(_,a)=>model(a)?<><div>{model(a)!.name}</div><div className="muted">{model(a)!.model||"未填写模型 ID"}</div></>:<Typography.Text type="warning">未绑定模型</Typography.Text>},
+   {title:"权限上限",key:"permission",width:105,render:(_,a)=><>{permissionLabels[a.permissionCeiling]}<div className="muted">{{cautious:"谨慎",balanced:"均衡",autonomous:"自主"}[a.riskPolicy]}</div></>},
+   {title:"技能",key:"skills",width:160,render:(_,a)=>a.skillIds.map(id=>skills.find(s=>s.id===id)?.name??id).join("、")||"—"},
+   {title:"工具",key:"tools",width:55,render:(_,a)=><Tooltip title={a.toolIds.join(", ")}>{a.toolIds.length}</Tooltip>},
+   {title:"Workflow",dataIndex:"workflowId",width:100,ellipsis:true,render:value=>value||"—"},
+   {title:"启用",key:"enabled",width:55,render:(_,a)=><Switch size="small" aria-label={`启用Agent ${a.id}`} disabled={busy} checked={a.enabled} onChange={enabled=>action(()=>call("studio.agent.enable",{id:a.id,enabled}))}/>},
+   {title:"操作",key:"actions",width:225,fixed:"right",render:(_,a)=><Space size={4} wrap><Button size="small" onClick={()=>edit(a)}>编辑</Button><Button size="small" onClick={()=>action(()=>call("studio.agent.clone",{id:a.id}))}>克隆</Button><Button size="small" onClick={()=>action(()=>call("studio.agent.export",{id:a.id}))}>导出</Button><Tooltip title={blocked(a)}><span><Button size="small" type="primary" disabled={!!blocked(a)||busy} onClick={()=>{runForm.resetFields();runForm.setFieldsValue({permission:a.permissionCeiling,root:a.rootPrefix,sudo:false});setRunning(a);}}>运行</Button></span></Tooltip>{a.source==="custom"&&<Button size="small" danger onClick={()=>Modal.confirm({title:`删除 ${a.name}？`,content:"历史运行快照保留。",onOk:()=>action(()=>call("studio.agent.remove",{id:a.id}))})}>删除</Button>}</Space>},
   ]}/>
   <Modal title={editing?`编辑 ${editing.name} · ${editing.version}`:"新建 Agent"} open={editing!==undefined} width={940} confirmLoading={busy} okText="保存 Agent" onCancel={()=>setEditing(undefined)} onOk={()=>action(async()=>{const values=await form.validateFields();await call("studio.agent.save",{...values,...(editing?{id:editing.id,expectedDigest:editing.digest}:{}),workflowId:values.workflowId?.trim()||undefined,acceptanceCriteria:String(values.acceptanceCriteria).split("\n").map(v=>v.trim()).filter(Boolean)});setEditing(undefined);})}>
    <Form form={form} layout="vertical"><Row gutter={16}>

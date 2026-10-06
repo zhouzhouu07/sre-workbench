@@ -463,7 +463,13 @@ function AgentWorkspace({
               )}
             </Space>
           </header>
-          {session?.agentSnapshot&&<Alert type="info" showIcon title={`${session.agentSnapshot.definition.name} · v${session.agentSnapshot.definition.version} · ${session.agentSnapshot.definition.riskPolicy}`} description={`本次固定 ${session.agentSnapshot.tools.length} 项Tool、${session.agentSnapshot.skills.length} 项Skill。模型：${session.agentSnapshot.modelProfile.model}。截止时间：${new Date(session.agentSnapshot.deadline).toLocaleString()}。配置编辑不改变此快照。`}/>}
+          {session&&<div className="agent-context" aria-label="任务上下文"><Space wrap size={[20,6]}>
+            <span>权限：{permissionLabels[session.permission]}</span>
+            <span>风险策略：{session.agentSnapshot?.definition.riskPolicy??session.steps.filter(s=>s.risk).at(-1)?.risk?.policy??"未记录"}</span>
+            <span>Agent：{session.agentSnapshot?`${session.agentSnapshot.definition.name} v${session.agentSnapshot.definition.version}`:"通用任务助手"}</span>
+            <span>Workflow：{session.agentSnapshot?.workflow?`${session.agentSnapshot.workflow.id} v${session.agentSnapshot.workflow.version}`:"—"}</span>
+            <span>Skill：{session.agentSnapshot?session.agentSnapshot.skills.map(s=>`${s.name} v${s.version}`).join("、")||"无":session.skills?.map(s=>`${s.name} v${s.version}`).join("、")||(session.skills?"无":"未记录")}</span>
+          </Space>{session.agentSnapshot&&<div className="muted">本次固定 {session.agentSnapshot.tools.length} 项 Tool；模型：{session.agentSnapshot.modelProfile.model}；截止：{new Date(session.agentSnapshot.deadline).toLocaleString()}。</div>}</div>}
           {!!session?.skills?.length && (
             <div
               style={{
@@ -473,7 +479,7 @@ function AgentWorkspace({
             >
               <Space wrap>
                 {session.skills.map((skill) => (
-                  <Tag key={skill.id} color="cyan">
+                  <Tag key={skill.id}>
                     {skill.name} · v{skill.version}
                   </Tag>
                 ))}

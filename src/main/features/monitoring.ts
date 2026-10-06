@@ -256,20 +256,34 @@ chown 65534:65534 "$base/alertmanager.yml" "$base/secrets/smtp_password"
 chmod 600 "$base/alertmanager.yml" "$base/secrets/smtp_password" "$base/secrets/grafana_password"
 chown 472:472 "$base/secrets/grafana_password"
 chmod 711 "$base/secrets"
-${s.targets.map((t) => `curl -fsS --max-time 15 ${q("http://" + t.address + ":9100/metrics")} >/dev/null`).join("\n")}
+${s.targets.map((t) => `if ! curl -fsS --max-time 15 ${q("http://" + t.address + ":9100/metrics")} | grep '^node_uname_info' >/dev/null; then echo 'Node Exporter 监控验收失败'; exit 1; fi`).join("\n")}
 docker run --rm -v "$base:/etc/prometheus:ro,z" --entrypoint /bin/promtool prom/prometheus:v3.2.1 check config /etc/prometheus/prometheus.yml
 docker run --rm -v "$base:/etc/alertmanager:ro,z" --entrypoint /bin/amtool prom/alertmanager:v0.28.1 check-config /etc/alertmanager/alertmanager.yml
 docker compose -f "$base/compose.yml" config --quiet
 docker compose -f "$base/compose.yml" up -d --force-recreate
-for port in ${monitoringPorts(s).prometheus} ${monitoringPorts(s).alertmanager} ${monitoringPorts(s).grafana}; do
+failed=0
+verify_monitor() {
+ service=$1; url=$2; kind=$3
  ok=0
  for attempt in $(seq 1 60); do
-  case "$port" in ${monitoringPorts(s).grafana}) route=/api/health;; *) route=/-/ready;; esac
-  if curl -fsS --max-time 3 "http://127.0.0.1:$port$route" >/dev/null; then ok=1; break; fi
+  if body=$(curl -fsS --max-time 3 "$url"); then
+   case "$kind" in
+    grafana) if printf '%s' "$body" | grep -E '"database"[[:space:]]*:[[:space:]]*"ok"' >/dev/null; then ok=1; fi;;
+    exporter) if printf '%s' "$body" | grep '^node_uname_info' >/dev/null; then ok=1; fi;;
+    ready) ok=1;;
+   esac
+  fi
+  if test "$ok" = 1; then break; fi
   sleep 2
  done
- test "$ok" = 1 || { echo "Monitoring health check failed: $port"; exit 1; }
-done
+ if test "$ok" = 1; then printf 'SRE_MONITOR_CHECK\\t%s\\tready\\n' "$service";
+ else printf 'SRE_MONITOR_CHECK\\t%s\\tunavailable\\n' "$service"; failed=1; fi
+}
+verify_monitor grafana ${q(`http://127.0.0.1:${monitoringPorts(s).grafana}/api/health`)} grafana
+verify_monitor prometheus ${q(`http://127.0.0.1:${monitoringPorts(s).prometheus}/-/ready`)} ready
+verify_monitor alertmanager ${q(`http://127.0.0.1:${monitoringPorts(s).alertmanager}/-/ready`)} ready
+${s.targets.map((t) => `verify_monitor exporter ${q(`http://${t.address}:9100/metrics`)} exporter`).join("\n")}
+if test "$failed" != 0; then echo '部署命令执行完成，但监控业务验收失败；请查看各组件检查结果'; exit 1; fi
 echo 'Monitoring services healthy. Existing Grafana administrator password remains managed by Grafana.'
 `;
 }

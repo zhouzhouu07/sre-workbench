@@ -102,15 +102,15 @@ export default function App() {
           colorTextSecondary: dark ? "#9aafc1" : "#617489",
           colorBorderSecondary: dark ? "#2a3b4f" : "#e3eaf0",
           colorBgContainer: dark ? "#162334" : "#ffffff",
-          controlHeight: 36,
-          borderRadius: 10,
+          controlHeight: 32,
+          borderRadius: 6,
           fontFamily: '"Segoe UI", "Microsoft YaHei", sans-serif',
           colorBgLayout: dark ? "#0e1826" : "#f4f7fa",
         },
         components: {
           Button: { primaryColor: dark ? "#0e1826" : "#ffffff" },
           Menu: {
-            itemHeight: 44,
+            itemHeight: 40,
             darkItemBg: "#102338",
             darkItemSelectedBg: "#194858",
             darkItemSelectedColor: "#7ee1da",
@@ -220,36 +220,32 @@ function Overview({
       <div className="page-title">
         <div>
           <Typography.Title level={2}>运维工作台</Typography.Title>
-          <p>连接基础设施，让每一次变更都有迹可循。</p>
+          <p>主机、部署、监控与近期执行记录</p>
         </div>
         <Button type="primary" onClick={() => navigate("hosts")}>
           管理主机 <ArrowRightOutlined />
         </Button>
       </div>
-      <div className="stats">
+      <div className="stats overview-stats">
         {[
           [
-            <CloudServerOutlined />,
             "已添加主机",
             data.hosts.length,
             "SSH 远程管理",
           ],
           [
-            <RocketOutlined />,
             "部署应用",
             data.deployments.length,
             "源码与容器发布",
           ],
           [
-            <DashboardOutlined />,
             "监控方案",
             data.monitoring.length,
             "持续采集与通知",
           ],
-          [<ThunderboltOutlined />, "进行中任务", running, "实时跟踪执行状态"],
-        ].map(([icon, title, value, desc], i) => (
+          ["进行中任务", running, "实时跟踪执行状态"],
+        ].map(([title, value, desc], i) => (
           <Card key={i}>
-            <div className={`stat-icon c${i}`}>{icon}</div>
             <Statistic title={title} value={value as number} />
             <div className="muted">{desc}</div>
           </Card>
@@ -286,19 +282,9 @@ function Overview({
             </button>
           ))}
         </Card>
-        <Card className="ai-promo">
-          <div className="ai-symbol">
-            <ThunderboltOutlined />
-          </div>
-          <div className="ai-promo-label">AI 辅助运维</div>
-          <Typography.Title level={3}>从需求到执行结果</Typography.Title>
-          <p>
-            选择只读、确认或自主执行权限，让 AI
-            创建项目、执行任务并反馈验证结果。
-          </p>
-          <Button onClick={() => navigate("ai")}>
-            打开 AI 助手 <ArrowRightOutlined />
-          </Button>
+        <Card title="运维助手" className="assistant-shortcuts">
+          <Typography.Paragraph type="secondary">选择目标与权限，查看工具输出、审批和验收证据。</Typography.Paragraph>
+          <Space wrap><Button onClick={() => navigate("ai")}>打开 AI 助手</Button><Button onClick={() => navigate("studio")}>打开 Agent Studio</Button></Space>
         </Card>
       </div>
       <Card
@@ -310,6 +296,7 @@ function Overview({
         }
       >
         <Table
+          size="small"
           rowKey="id"
           pagination={false}
           dataSource={[...data.tasks].reverse().slice(0, 5)}

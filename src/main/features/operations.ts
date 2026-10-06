@@ -60,6 +60,7 @@ export class FeatureService {
     string,
     { server: Server; client: Client; sockets: Set<Socket>; url: string }
   >();
+  private tunnelOpenings = new Map<string, Promise<string>>();
   private stopped = false;
   constructor(
     private core: Backend,
@@ -155,7 +156,8 @@ export class FeatureService {
     }
     if (method === "monitoring.test") {
       const { id } = idParams.parse(params);
-      return this.monitorApi(this.monitor(id), 9093, "/api/v2/alerts", [
+      const s = this.monitor(id);
+      await this.monitorApi(s, 9093, "/api/v2/alerts", [
         {
           labels: { alertname: "SREWorkbenchTest", severity: "info" },
           annotations: { summary: "SRE 工作台测试告警" },
@@ -163,6 +165,42 @@ export class FeatureService {
           endsAt: new Date(Date.now() + 300000).toISOString(),
         },
       ]);
+      try {
+        const alerts = await this.monitorApi(
+          s,
+          9093,
+          "/api/v2/alerts?filter=alertname%3DSREWorkbenchTest",
+        );
+        const test = Array.isArray(alerts)
+          ? alerts.find((a) => a.labels?.alertname === "SREWorkbenchTest")
+          : undefined;
+        const silencedBy: string[] = test?.status?.silencedBy ?? [];
+        const inhibitedBy: string[] = test?.status?.inhibitedBy ?? [];
+        const suppressed =
+          silencedBy.length > 0 ||
+          inhibitedBy.length > 0 ||
+          test?.status?.state === "suppressed";
+        return {
+          submitted: true,
+          state: suppressed ? "suppressed" : test ? "active" : "pending",
+          silencedBy,
+          inhibitedBy,
+          receivers: (test?.receivers ?? []).map(
+            (r: { name: string }) => r.name,
+          ),
+          message: suppressed
+            ? "测试告警已提交，但被静默或抑制，通知不会按通常流程发送；请检查静默与抑制规则。"
+            : `测试告警已提交，首次通知需等待 ${s.groupWait}；尚未确认 SMTP 发送或邮箱收件，请检查接收渠道及 Alertmanager 日志。`,
+        };
+      } catch (e) {
+        return {
+          submitted: true,
+          state: "pending",
+          message:
+            "测试告警已提交，但后续状态读取失败，尚未确认发送；请刷新目标与告警。详情：" +
+            this.core.store.redact(e instanceof Error ? e.message : "未知错误"),
+        };
+      }
     }
     if (method === "monitoring.silence") {
       const p = z
@@ -900,9 +938,49 @@ export class FeatureService {
       .extend({ service: z.enum(["grafana", "prometheus", "alertmanager"]) })
       .strict()
       .parse(params);
-    const s = this.monitor(id);
-    await this.assertMonitorService(s, service);
+    if (this.stopped) throw new Error("工作台正在关闭，无法打开监控");
     const key = id + ":" + service;
+    const pending = this.tunnelOpenings.get(key);
+    if (pending) return pending;
+    const opening = this.openMonitoringService(id, service, key);
+    this.tunnelOpenings.set(key, opening);
+    try {
+      return await opening;
+    } finally {
+      if (this.tunnelOpenings.get(key) === opening)
+        this.tunnelOpenings.delete(key);
+    }
+  }
+  private async openMonitoringService(
+    id: string,
+    service: "grafana" | "prometheus" | "alertmanager",
+    key: string,
+  ): Promise<string> {
+    const s = this.monitor(id);
+    const assertCurrent = () => {
+      const current = this.core.store.get<SavedMonitor>("monitoring", id);
+      if (this.stopped || !current || digest(current) !== digest(s))
+        throw new Error("监控方案已改变或工作台正在关闭，请重新打开");
+    };
+    await this.assertMonitorService(s, service);
+    const health = await this.core.ssh.exec(
+      s.hostId,
+      `curl -fsS --max-time 5 ${q(`http://127.0.0.1:${monitoringPorts(s)[service]}${service === "grafana" ? "/api/health" : "/-/ready"}`)}`,
+      { raw: true },
+    );
+    let healthy = health.code === 0;
+    if (healthy && service === "grafana") {
+      try {
+        healthy = JSON.parse(health.stdout).database === "ok";
+      } catch {
+        healthy = false;
+      }
+    }
+    if (!healthy)
+      throw new Error(
+        `${service === "grafana" ? "Grafana" : service} 健康检查失败，未建立 SSH 隧道：${this.core.store.redact(health.stderr) || "组件尚未就绪"}`,
+      );
+    assertCurrent();
     const existing = this.tunnels.get(key);
     if (existing) {
       await this.options.openExternal(existing.url);
@@ -910,6 +988,12 @@ export class FeatureService {
     }
     const remotePort = monitoringPorts(s)[service];
     const client = await this.core.ssh.connect(s.hostId);
+    try {
+      assertCurrent();
+    } catch (error) {
+      client.end();
+      throw error;
+    }
     const sockets = new Set<Socket>();
     const server = createServer((socket) => {
       sockets.add(socket);
@@ -936,11 +1020,14 @@ export class FeatureService {
         server.once("error", reject);
         server.listen(0, "127.0.0.1", resolve);
       });
+      assertCurrent();
       const address = server.address();
       if (!address || typeof address === "string")
         throw new Error("SSH 隧道创建失败");
       const url = `http://127.0.0.1:${address.port}${service === "grafana" ? "/d/sre-nodes" : "/"}`;
+      let closed = false;
       const close = () => {
+        closed = true;
         server.close();
         for (const socket of sockets) socket.destroy();
         this.tunnels.delete(key);
@@ -950,10 +1037,32 @@ export class FeatureService {
         close();
         client.end();
       });
+      // Track pending resources for save/delete/close cleanup; concurrent opens
+      // wait on tunnelOpenings until the real probe and browser opening finish.
       this.tunnels.set(key, { server, client, sockets, url });
+      // A listening Windows port alone does not prove SSH forwarding works.
+      try {
+        const probe = await fetch(
+          `http://127.0.0.1:${address.port}${service === "grafana" ? "/api/health" : "/-/ready"}`,
+          { signal: AbortSignal.timeout(5000) },
+        );
+        if (!probe.ok) throw new Error(`HTTP ${probe.status}`);
+        await probe.text();
+      } catch (error) {
+        throw new Error(
+          "SSH 隧道建立失败，尚未打开浏览器：" +
+            this.core.store.redact(
+              error instanceof Error ? error.message : "转发失败",
+            ),
+        );
+      }
+      assertCurrent();
+      if (closed) throw new Error("SSH 隧道已关闭，请重新打开");
       await this.options.openExternal(url);
       return url;
     } catch (error) {
+      this.tunnels.delete(key);
+      for (const socket of sockets) socket.destroy();
       server.close();
       client.end();
       throw error;

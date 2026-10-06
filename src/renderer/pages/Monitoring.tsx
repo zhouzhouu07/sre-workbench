@@ -23,6 +23,7 @@ import TaskFeedback from "../components/TaskFeedback";
 import {
   durationPattern,
   smtpProviders,
+  smtpProviderFor,
   validEmail,
   validRecipients,
   validSmtpHost,
@@ -51,10 +52,10 @@ export default function Monitoring({
   const [status, setStatus] = useState<unknown>();
   const edit = (m?: MonitoringStack) => {
     setEditing(m);
-    setSmtpAdvanced([]);
+    setSmtpAdvanced(["smtp"]);
     setAlertAdvanced([]);
     setSaveError(undefined);
-    setProvider(m ? "custom" : "qq");
+    setProvider(m ? smtpProviderFor(m.smtpHost, m.smtpUser, m.smtpFrom) : "qq");
     form.resetFields();
     form.setFieldsValue(
       m
@@ -247,11 +248,22 @@ export default function Monitoring({
                       content:
                         "将向配置的邮件 / Webhook 渠道发送 SREWorkbenchTest 告警。",
                       onOk: () =>
-                        call("monitoring.test", { id: m.id }).then(() => {
-                          void message.success(
-                            "测试告警已提交，请检查接收渠道",
-                          );
-                        }),
+                        call<{ state: string; message: string }>(
+                          "monitoring.test",
+                          { id: m.id },
+                        )
+                          .then((result) => {
+                            void (
+                              result.state === "suppressed" ||
+                                result.state === "pending"
+                                ? message.warning
+                                : message.info
+                            )(result.message, 10);
+                          })
+                          .catch((e) => {
+                            reportError(e);
+                            throw e;
+                          }),
                     })
                   }
                 >
@@ -633,7 +645,8 @@ export default function Monitoring({
               <div className="two-col">
                 <Form.Item
                   name="smtpFrom"
-                  label="发件邮箱"
+                  label="SMTP 发送账号"
+                  extra="用于发送告警；预设服务使用此账号登录 SMTP"
                   rules={[
                     { required: true, message: "请输入发件邮箱" },
                     {
@@ -648,7 +661,8 @@ export default function Monitoring({
                 </Form.Item>
                 <Form.Item
                   name="smtpTo"
-                  label="收件邮箱"
+                  label="告警接收邮箱"
+                  extra="告警邮件将发送到该地址，可与发送账号相同"
                   rules={[
                     { required: true, message: "请输入收件邮箱" },
                     {
@@ -665,8 +679,8 @@ export default function Monitoring({
                 </Form.Item>
                 <Form.Item
                   name="smtpPassword"
-                  label="邮箱授权码 / SMTP 密码"
-                  extra="在邮箱设置中开启 SMTP 并获取授权码。已有授权码留空保留。"
+                  label="SMTP 授权码"
+                  extra="QQ / 163 等邮箱请填写客户端授权码，不是网页登录密码；已有授权码留空保留。"
                   rules={[
                     {
                       required:
@@ -684,6 +698,9 @@ export default function Monitoring({
                   />
                 </Form.Item>
               </div>
+              {provider === "qq" && (
+                <p>请先在 QQ 邮箱中开启 SMTP 服务并生成授权码。</p>
+              )}
               {provider === "custom" && (
                 <Collapse
                   activeKey={smtpAdvanced}
@@ -719,11 +736,15 @@ export default function Monitoring({
                           </Form.Item>
                           <Form.Item
                             name="smtpUser"
-                            label="SMTP 用户"
+                            label="SMTP 认证用户名"
                             extra="自定义服务留空表示不使用 SMTP 认证"
                           >
                             <Input placeholder="认证用户名，免认证中继可留空" />
                           </Form.Item>
+                          <p>
+                            465 使用直接 TLS，其他端口使用
+                            STARTTLS；始终验证服务器证书。
+                          </p>
                         </div>
                       ),
                     },

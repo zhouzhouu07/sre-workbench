@@ -29,7 +29,7 @@ export class WorkflowRuntime {
  private riskContext(r:WorkflowRun){return {policy:r.parentAgent?.definition.riskPolicy,verificationPlanned:r.definition.nodes.some(n=>n.type==="Verify")};}
  private assess(r:WorkflowRun,call:AgentToolCall){return this.core.toolRegistry.assess(r.permission,call,r.target,this.riskContext(r));}
  private binding(r:WorkflowRun,n:WorkflowNode,call:AgentToolCall){return workflowHash({runId:r.id,nodeId:n.id,call,target:r.target,permission:r.permission,tool:r.toolPins.find(t=>t.id===call.tool),risk:this.assess(r,call)});}
- private finishNode(r:WorkflowRun,n:WorkflowNode,state:WorkflowNodeState,output:unknown,next=n.next){state.status="succeeded";state.finishedAt=now();state.output=this.clean(output);r.outputs[n.id]=state.output;this.event(r,"node.completed",`${n.label} 已完成`,{output:state.output,taskId:state.taskId,agentSessionId:state.agentSessionId});if(next)r.current=next;this.save(r);}
+ private finishNode(r:WorkflowRun,n:WorkflowNode,state:WorkflowNodeState,output:unknown,next=n.next){state.status="succeeded";state.finishedAt=now();state.output=this.clean(output);r.outputs[n.id]=state.output;this.event(r,"node.completed",`${n.label} 已完成`,{output:state.output,taskId:state.taskId,agentSessionId:state.agentSessionId,call:state.call,status:state.status,startedAt:state.startedAt,finishedAt:state.finishedAt,risk:state.risk});if(next)r.current=next;this.save(r);}
  private accountChildTools(r:WorkflowRun,state:WorkflowNodeState,session:AgentSession){
   if(state.agentToolsAccounted)return;
   r.toolCalls=(r.toolCalls??0)+session.steps.filter(s=>s.call).length;
@@ -41,7 +41,13 @@ export class WorkflowRuntime {
  private async start(input:unknown,parent?:AgentRuntimeSnapshot,runId?:string){
   const p=z.object({id,target:targetSchema,permission:permissionSchema,input:z.record(z.string(),z.unknown()),maxRuntimeSeconds:z.number().int().min(30).max(86400).default(3600)}).strict().parse(input);
   if(this.active.size)throw new Error("已有流程执行中");const definition=this.core.workflowRegistry.get(p.id);this.core.workflowRegistry.validate({name:definition.name,description:definition.description,nodes:definition.nodes});
-  const target=await this.core.toolRegistry.validateTarget(p.target);if(target.kind!=="ssh")throw new Error("Workflow只支持SSH服务器");validateMapping(p.input);if(JSON.stringify(this.clean(p.input))!==JSON.stringify(p.input))throw new Error("流程输入不得包含凭据");
+  const target=await this.core.toolRegistry.validateTarget(p.target);
+  // Validation yields to concurrent starts and shutdown. Reject before writing
+  // any checkpoint so a refused launch cannot leave a phantom running record.
+  if(this.closing)throw new Error("软件正在退出");
+  if(this.active.size)throw new Error("已有流程执行中");
+  if(runId&&this.core.store.get("workflowRuns",runId))throw new Error("运行ID已存在，禁止重复提交");
+  if(target.kind!=="ssh")throw new Error("Workflow只支持SSH服务器");validateMapping(p.input);if(JSON.stringify(this.clean(p.input))!==JSON.stringify(p.input))throw new Error("流程输入不得包含凭据");
   const skills:WorkflowRun["skills"]={},agents:WorkflowRun["agents"]={};
   for(const n of definition.nodes){if(n.type==="Skill")skills[n.config.skillId]=this.core.skillRegistry.snapshot([n.config.skillId])[0];
    if(n.type==="Agent"){const a=this.core.agentBuilder.get(n.config.agentId),permission=permissions[Math.min(permissions.indexOf(p.permission),permissions.indexOf(a.permissionCeiling))];agents[n.id]=this.core.agentBuilder.prepare({id:a.id,target,permission,instruction:"执行工作流局部任务"});agents[n.id].snapshot.workflow={id:definition.id,version:definition.version,digest:definition.digest};}
@@ -111,7 +117,7 @@ export class WorkflowRuntime {
      if(Object.values(r.states).some(s=>s.status==="failed"||s.status==="unknown"))throw new Error("仍有失败/未知节点，不能报告流程完成");if(r.lastMutation>=r.lastVerify&&r.lastMutation>=0)throw new Error("最后变更后缺少独立Verify，拒绝完成");
      this.finishNode(r,n,state,{verified:r.lastVerify>=0});r.status="completed";r.summary="流程结束，已完成实际节点及独立验收要求";this.event(r,"run.completed",r.summary);return;
     }
-   }catch(error){const message=error instanceof Error?error.message:String(error);state.error=this.clean(message);state.finishedAt=now();state.status=error instanceof UncertainExecution?"unknown":"failed";this.event(r,"node.failed",message);
+   }catch(error){const message=error instanceof Error?error.message:String(error);state.error=this.clean(message);state.finishedAt=now();state.status=error instanceof UncertainExecution?"unknown":"failed";this.event(r,"node.failed",message,{call:state.call,status:state.status,startedAt:state.startedAt,finishedAt:state.finishedAt,output:state.output,taskId:state.taskId,agentSessionId:state.agentSessionId,risk:state.risk});
     if(error instanceof UncertainExecution||a.controller.signal.aborted)throw error;if(n.onFailure){r.current=n.onFailure;this.save(r);continue;}throw error;
    }
   }}catch(error){const state=r.states[r.current];if(a.controller.signal.aborted&&state?.agentSessionId){await this.agent.handle("ai.session.pause",{id:state.agentSessionId}).catch(()=>{});state.status="unknown";}r.status=error instanceof UncertainExecution||state?.status==="unknown"?"unknown":a.controller.signal.aborted?"cancelled":"failed";r.summary=this.clean(error instanceof Error?error.message:String(error));this.event(r,"run.stopped",r.summary);}finally{clearTimeout(timer);}

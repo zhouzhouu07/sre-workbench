@@ -1,10 +1,14 @@
 请继续现有项目 **SRE Workbench / SRE Agent Studio**，工作目录 `D:\SRE自动化运维`。这是 Windows 中文桌面 SRE 运维软件，通过 SSH 管理 Linux；不是新建项目。本文件可以整段复制到新 Codex 对话。
 
-最新正式发行 **v0.4.0**，源码 Commit **3ed4ecb73a129cb8d99306449cf0fde20807d220**，Tag **v0.4.0**，分支 **feat/sre-desktop**，仓库 https://github.com/zhouzhouu07/sre-workbench ，Release https://github.com/zhouzhouu07/sre-workbench/releases/tag/v0.4.0 。发行后还有交接文档收尾提交，未发布产品修改0。先用 `git status --short`、`git log -3 --oneline` 和 `git rev-parse 'v0.4.0^{commit}'` 核对实际状态，保留未提交修改，不根据记忆猜测。
+**2026-10-06更新：v0.4.1转为正式桌面发行**，分支feat/sre-desktop，Tag v0.4.1，发行页 https://github.com/zhouzhouu07/sre-workbench/releases/tag/v0.4.1 。按用户指示使用10月3日已验收包，不重复回归/重编译；101项构建输入及二进制SHA256一致，原256单元/17Electron/18包内检查结果保留。本轮具体commit、上传/匿名下载状态以docs/testing/2026-10-06-v0.4.1-release.md和最新交接为准；下方0.4.0及本地阶段为历史追溯。Android/AIC/录屏助手保留本地，不自动发布后续版本。
+
+最新正式发行 **v0.4.0**，源码 Commit **3ed4ecb73a129cb8d99306449cf0fde20807d220**，Tag **v0.4.0**，分支 **feat/sre-desktop**，仓库 https://github.com/zhouzhouu07/sre-workbench ，Release https://github.com/zhouzhouu07/sre-workbench/releases/tag/v0.4.0 。发行后文档收尾 HEAD 为8e5d091，**2026-10-02 当前工作区另有本地未提交产品打磨**。先用 `git status --short`、`git log -3 --oneline` 和 `git rev-parse 'v0.4.0^{commit}'` 核对实际状态，保留未提交修改，不根据记忆猜测。
+
+本地阶段已完成：Workflow启动并发/退出竞态、Runs旧响应覆盖、工具使用记录刷新重试；紧凑总览/Studio、Agent模型配置可见及缺配置禁用运行、Tool/Skill Inspector、主题画布、任务上下文、Trace事件表与完整IO。Workflow每次事件保留当次失败/未知状态与实际起止，不用最终重试状态补造历史。实际最终23文件242项单元、16项Electron、typecheck/build通过，29张源码隔离截图页面错误/警告0，真实SSH/模型调用0；不是包内或新VM验收。原Benchmark、失败、正式发行与Tag保留，未提交/推送/打包/发行。下一步按新的明确问题开展工作，P3候选不自动实现。详见最新交接顶部、docs/next-stage-optimization.md和根目录日志操作161–164。
 
 先阅读：
 
-1. `docs/next-session-handoff.md` 的最新正式交接；
+1. `docs/next-session-handoff.md` 顶部的本地未发布增量，再读最新正式交接；
 2. `README.md`、`docs/releases/v0.4.0.md` 和 `docs/testing/2026-10-01-v0.4.0-release.md`；
 3. `docs/user-guide.md`、`docs/competition-agent-studio.md`；
 4. `docs/testing/competition-agent-benchmark.md` 及 `docs/testing/evidence/studio-20261001` 最新 JSON／CSV／Markdown；
@@ -38,4 +42,4 @@
 
 UI 不重做整套软件，保留现有 Ant Design 和成熟视觉体系，进一步精简、去除明显 AI 概念 Demo 感。避免大量渐变／发光、紫蓝 Glow、卡片堆叠、过多圆角／Badge、营销标题、无意义图标／emoji、巨型数字、过度留白、无必要动画和装饰图表。倾向成熟桌面 SRE/DevOps 管理工具：合理信息密度、统一间距和字体层级、紧凑 Toolbar、Table／Split Pane／Tabs，Drawer 放次级设置、Modal 仅关键操作，风险只在需要时突出，日志／Trace 偏工程工具风格。
 
-本旧对话在发行和交接完成后停止开发；新对话先核对以上真实状态，向用户汇报，再继续其明确指定的下一阶段目标。
+本地2026-10-02打磨阶段已完成；新对话先核对实际未提交改动及以上分层状态，向用户汇报，再继续其明确指定的下一阶段目标，不重复开发已关闭问题。

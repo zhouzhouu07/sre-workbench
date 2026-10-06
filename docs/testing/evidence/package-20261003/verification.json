@@ -1,0 +1,54 @@
+{
+  "version": "0.4.1",
+  "builtAt": "2026-10-03T04:50:19.625Z",
+  "source": {
+    "branch": "feat/sre-desktop",
+    "baselineCommit": "8e5d09139df4efc34f07e3d9542dc8d988c291f1",
+    "builtFromUncommittedWorkspace": true,
+    "inventorySha256": "64278fa1c3bc99467ecac139817fd96036b597bb64704096bc300dcc302eebff"
+  },
+  "localOnly": true,
+  "uploaded": false,
+  "androidIncluded": false,
+  "verification": {
+    "unit": {
+      "files": 24,
+      "passed": 256
+    },
+    "electron": {
+      "passed": 17
+    },
+    "typecheck": true,
+    "build": true,
+    "packagedSmoke": {
+      "passed": 18,
+      "pageErrors": 0,
+      "remoteCalls": 0,
+      "modelCalls": 0
+    },
+    "sensitiveScan": {
+      "forbiddenFiles": 0,
+      "unexpectedPatterns": 0,
+      "knownCredentialMatches": 0,
+      "decryptFailures": 0
+    }
+  },
+  "artifacts": [
+    {
+      "name": "SRE Workbench Setup 0.4.1.exe",
+      "size": 151917776,
+      "sha256": "9c8c41ac45f7cc20c2d22fb90e64ce1efbe2b08d885faf52787487de5d39e508"
+    },
+    {
+      "name": "SRE Workbench Setup 0.4.1.exe.blockmap",
+      "size": 158991,
+      "sha256": "165910498af5dc20faa7a869f19af60962fa7f85dffd20e3bbe8774c6b978a58"
+    }
+  ],
+  "packagePatterns": {
+    "archiveEntries": 281,
+    "textFiles": 505,
+    "reviewedLibraryOrPlaceholderFindings": 7
+  },
+  "knownSecretValues": 5
+}
